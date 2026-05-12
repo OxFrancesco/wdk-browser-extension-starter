@@ -27,7 +27,7 @@ Objective: produce the browser-extension wallet starter described in `docs/Brows
 | Automatic address/network validation | `src/lib/validation.ts` and `src/lib/validation.test.ts` | Implemented |
 | Documentation | `README.md`, `docs/SECURITY.md`, `docs/DEMO.md`, this audit | Implemented |
 | Build instructions | `README.md` setup/build section | Implemented |
-| Demo video | `docs/DEMO.md` script exists | Not recorded in this workspace |
+| Demo video | `docs/browser-demo.webm`; reproducible with `npm run demo:record` | Recorded |
 | Public GitHub repository | `https://github.com/OxFrancesco/wdk-browser-extension-starter` | Implemented |
 | Pull request to Tether repo | `https://github.com/tetherto/wdk-examples/pull/7` | Opened |
 
@@ -46,6 +46,7 @@ npm run zip
 The generated installable extension directory is `.output/chrome-mv3`.
 The generated zip is `.output/wdk-browser-extension-starter-0.0.0-chrome.zip`.
 The browser E2E screenshot is `docs/browser-e2e-popup.png`.
+The recorded demo video is `docs/browser-demo.webm`.
 The public repository is `https://github.com/OxFrancesco/wdk-browser-extension-starter`.
 The Tether examples pull request is `https://github.com/tetherto/wdk-examples/pull/7`.
 
@@ -55,4 +56,4 @@ The Tether examples pull request is `https://github.com/tetherto/wdk-examples/pu
 - Plasma is configured as a network slot but has no live RPC/broadcast implementation until production network details are supplied.
 - WDK beta package APIs determine live balance, quote, and broadcast behavior.
 - `npm audit --omit=dev` reports low-severity advisories through Bitcoin wallet dependencies.
-- The required demo video requires external recording and publishing.
+- Reviewers should treat the included demo as a generated walkthrough; production submissions can replace it with a narrated recording against funded development wallets and owned RPC/indexer endpoints.

@@ -1,6 +1,15 @@
 # Demo Script
 
-Use this outline to record the required 2-5 minute demonstration video.
+Recorded demo: `docs/browser-demo.webm`.
+
+To regenerate it from the unpacked Chrome build:
+
+```bash
+npm run build
+npm run demo:record
+```
+
+Use this outline for a narrated 2-5 minute demonstration video.
 
 1. Open `chrome://extensions` or `brave://extensions`, enable Developer Mode, and load `.output/chrome-mv3`.
 2. Open the WDK Wallet popup.
