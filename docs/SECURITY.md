@@ -16,10 +16,13 @@ This starter is intended as a browser-extension reference implementation, not a 
 - The content script only answers `wallet:status` page messages and never exposes seed phrases, signing, or send/broadcast actions.
 - Recipient addresses are validated per network before quoting or broadcasting.
 - Network/provider failures fail closed with user-facing errors.
+- WDK primitive execution is routed through typed background messages. The popup exposes installed account operations, while wallet/protocol registration, middleware registration, and disposal stay internal to the background runtime.
 
 ## Known Production Hardening Work
 
 - Replace public RPC/indexer endpoints with controlled infrastructure.
+- Pin final Plasma token metadata and use dedicated Plasma RPC access before production release.
+- Provide compatible Spark infrastructure for test-mode/regtest workflows.
 - Add explicit allowlists and origin prompts before exposing dApp signing APIs.
 - Add hardware-wallet or passkey-backed unlock options if required by product policy.
 - Move the extension icon assets from WXT placeholders to final brand assets before submission.

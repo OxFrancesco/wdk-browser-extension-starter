@@ -6,6 +6,7 @@ import { decryptVault, encryptVault } from './vault-crypto';
 const vault: VaultPlaintext = {
   version: 1,
   activeWalletId: 'wallet-1',
+  networkMode: 'mainnet',
   sessionTimeoutMinutes: 15,
   wallets: [
     {

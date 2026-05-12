@@ -14,8 +14,10 @@ import { decryptVault, encryptVault } from '@/src/lib/vault-crypto';
 import {
   assertValidSeedPhrase,
   broadcastSend,
+  executePrimitive,
   generateSeedPhrase,
   getAccountSnapshot,
+  getPrimitiveDefinitions,
   quoteSend,
 } from '@/src/lib/wdk-adapter';
 
@@ -26,6 +28,17 @@ const vaultItem = storage.defineItem<VaultEnvelope | null>('local:wdk-vault', {
 let sessionVault: VaultPlaintext | null = null;
 let sessionPassword: string | null = null;
 let sessionExpiresAt: number | null = null;
+
+function normalizeVault(vault: VaultPlaintext): VaultPlaintext {
+  return {
+    ...vault,
+    networkMode: vault.networkMode ?? 'mainnet',
+    transactions: vault.transactions.map((transaction) => ({
+      ...transaction,
+      networkMode: transaction.networkMode ?? vault.networkMode ?? 'mainnet',
+    })),
+  };
+}
 
 function createWallet(name: string, seedPhrase: string): VaultWallet {
   assertValidSeedPhrase(seedPhrase);
@@ -91,10 +104,12 @@ async function buildDashboard(): Promise<DashboardState> {
       locked: true,
       hasVault: Boolean(envelope),
       activeWalletId: null,
+      networkMode: 'mainnet',
       sessionExpiresAt: null,
       wallets: [],
       accounts: [],
       transactions: [],
+      primitives: getPrimitiveDefinitions(),
     };
   }
 
@@ -104,7 +119,9 @@ async function buildDashboard(): Promise<DashboardState> {
   const accounts = activeWallet
     ? await Promise.all(
         accountIndexes.flatMap((accountIndex) =>
-          CHAIN_ORDER.map((chainId) => getAccountSnapshot(activeWallet, chainId, accountIndex)),
+          CHAIN_ORDER.map((chainId) =>
+            getAccountSnapshot(activeWallet, chainId, accountIndex, vault.networkMode),
+          ),
         ),
       )
     : [];
@@ -113,10 +130,12 @@ async function buildDashboard(): Promise<DashboardState> {
     locked: false,
     hasVault: Boolean(envelope),
     activeWalletId: vault.activeWalletId,
+    networkMode: vault.networkMode,
     sessionExpiresAt,
     wallets: vault.wallets.map(publicWallet),
     accounts,
     transactions: vault.transactions.slice().sort((a, b) => b.createdAt - a.createdAt),
+    primitives: getPrimitiveDefinitions(),
   };
 }
 
@@ -126,6 +145,7 @@ async function createVault(password: string, seedPhrase: string, name: string): 
   sessionVault = {
     version: 1,
     activeWalletId: wallet.id,
+    networkMode: 'mainnet',
     sessionTimeoutMinutes: 15,
     wallets: [wallet],
     transactions: [],
@@ -144,7 +164,7 @@ async function unlock(password: string): Promise<DashboardState> {
     throw new Error('No vault exists yet.');
   }
 
-  sessionVault = await decryptVault(envelope, password);
+  sessionVault = normalizeVault(await decryptVault(envelope, password));
   sessionPassword = password;
   sessionExpiresAt = Date.now() + sessionVault.sessionTimeoutMinutes * 60_000;
 
@@ -176,6 +196,12 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
   }
 
   const vault = assertUnlocked();
+
+  if (request.type === 'network:set') {
+    vault.networkMode = request.networkMode;
+    await persistSession();
+    return buildDashboard();
+  }
 
   if (request.type === 'wallet:add') {
     const wallet = createWallet(request.name, request.seedPhrase);
@@ -209,7 +235,7 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
   if (request.type === 'send:quote') {
     const wallet = vault.wallets.find((candidate) => candidate.id === request.request.walletId);
     if (!wallet) throw new Error('Wallet not found.');
-    return quoteSend(wallet, request.request);
+    return quoteSend(wallet, request.request, vault.networkMode);
   }
 
   if (request.type === 'send:broadcast') {
@@ -220,13 +246,14 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
     const record: TransactionRecord = {
       id: crypto.randomUUID(),
       ...request.request,
+      networkMode: vault.networkMode,
       status: 'submitted',
       createdAt: now,
       updatedAt: now,
     };
 
     try {
-      const result = await broadcastSend(wallet, request.request);
+      const result = await broadcastSend(wallet, request.request, vault.networkMode);
       record.hash = result.hash;
       record.fee = result.fee;
       record.status = 'submitted';
@@ -238,6 +265,12 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
     vault.transactions.push(record);
     await persistSession();
     return buildDashboard();
+  }
+
+  if (request.type === 'primitive:execute') {
+    const wallet = vault.wallets.find((candidate) => candidate.id === request.request.walletId);
+    if (!wallet) throw new Error('Wallet not found.');
+    return executePrimitive(wallet, request.request, vault.networkMode);
   }
 
   throw new Error('Unsupported request.');

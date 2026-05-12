@@ -10,15 +10,9 @@ const screenshotPath = path.join(root, 'docs', 'browser-e2e-popup.png');
 const seed = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const password = 'correct horse battery staple';
 
-async function waitForSelectOption(page, selectIndex, label, timeout = 90_000) {
-  await page.waitForFunction(
-    ({ selectIndex, label }) => {
-      const select = document.querySelectorAll('select')[selectIndex];
-      return !!select && Array.from(select.options).some((option) => option.textContent?.trim() === label);
-    },
-    { selectIndex, label },
-    { timeout },
-  );
+async function selectByName(page, triggerIndex, optionName) {
+  await page.getByRole('combobox').nth(triggerIndex).click();
+  await page.getByRole('option', { name: optionName }).click();
 }
 
 async function main() {
@@ -55,33 +49,38 @@ async function main() {
     await page.getByLabel('Password').fill(password);
     await page.getByRole('button', { name: /Create encrypted vault/i }).click();
 
-    await page.getByRole('button', { name: 'Refresh' }).waitFor({ timeout: 90_000 });
+    await page.getByText(/Account 1 on Ethereum Mainnet/i).waitFor({ timeout: 90_000 });
+    await selectByName(page, 0, 'Testnet');
+    await page.getByText(/Account 1 on Ethereum Sepolia/i).waitFor({ timeout: 90_000 });
+
     await page.getByRole('button', { name: 'Add account' }).click();
-    await waitForSelectOption(page, 2, 'Account 2');
-    const primaryAccountOptions = await page.locator('select').nth(2).locator('option').allTextContents();
+    await selectByName(page, 3, 'Account 2');
+    await page.getByText(/Account 2 on Ethereum Sepolia/i).waitFor({ timeout: 90_000 });
 
     await page.getByTitle('Add wallet').click();
-    await page.getByPlaceholder('Wallet name').fill('Second E2E wallet');
-    await page.getByPlaceholder('Generate a seed or paste an existing BIP-39 phrase').fill(seed);
-    await page.locator('section.wallet-form button.primary').click();
-    await waitForSelectOption(page, 0, 'Second E2E wallet');
+    await page.locator('#new-wallet-name').fill('Second E2E wallet');
+    await page.locator('#new-wallet-seed').fill(seed);
+    await page.locator('[role="dialog"]').getByRole('button', { name: 'Add wallet' }).click();
+    await page.getByText('Second E2E wallet').first().waitFor({ timeout: 90_000 });
 
-    await page.locator('select').nth(1).selectOption({ label: 'Ethereum' });
+    await page.getByRole('tab', { name: 'Send' }).click();
     await page.getByPlaceholder('Recipient address').fill('not-an-address');
     await page.getByPlaceholder('Amount').fill('1');
     await page.getByRole('button', { name: 'Quote' }).click();
     await page.getByText(/valid Ethereum address/i).waitFor({ timeout: 10_000 });
 
+    await page.getByRole('tab', { name: 'WDK' }).click();
+    await page.getByRole('button', { name: 'Execute primitive' }).click();
+    await page.getByText(/0x9858Ef/i).waitFor({ timeout: 30_000 });
+
     await page.getByTitle('Lock').click();
     await page.getByRole('button', { name: 'Unlock' }).waitFor({ timeout: 15_000 });
     await page.getByLabel('Password').fill(password);
     await page.getByRole('button', { name: 'Unlock' }).click();
-    await page.getByRole('button', { name: 'Refresh' }).waitFor({ timeout: 90_000 });
+    await page.getByText(/Account 1 on Ethereum Sepolia/i).waitFor({ timeout: 90_000 });
 
     await page.screenshot({ path: screenshotPath, fullPage: true });
     const visibleText = await page.locator('body').innerText();
-    const walletOptions = await page.locator('select').first().locator('option').allTextContents();
-    const activeAccountOptions = await page.locator('select').nth(2).locator('option').allTextContents();
     const result = {
       ok: true,
       extensionId,
@@ -89,15 +88,14 @@ async function main() {
       checks: [
         'created encrypted vault from seed phrase',
         'derived dashboard and balances view',
+        'switched from mainnet to testnet',
         'added second account on primary wallet',
         'added and selected second wallet',
         'validated invalid Ethereum recipient before quote',
+        'executed a WDK primitive through the popup console',
         'locked and unlocked existing vault',
       ],
-      walletOptions,
-      primaryAccountOptions,
-      activeAccountOptions,
-      textSample: visibleText.slice(0, 700),
+      textSample: visibleText.slice(0, 900),
       errors,
     };
 

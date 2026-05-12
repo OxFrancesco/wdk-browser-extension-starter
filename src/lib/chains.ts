@@ -1,4 +1,4 @@
-import type { AssetConfig, AssetId, ChainConfig, ChainId } from './types';
+import type { AssetConfig, AssetId, ChainConfig, ChainId, NetworkMode } from './types';
 
 const btcAsset: AssetConfig = {
   id: 'BTC',
@@ -7,111 +7,72 @@ const btcAsset: AssetConfig = {
   kind: 'native',
 };
 
-export const CHAINS: Record<ChainId, ChainConfig> = {
-  bitcoin: {
-    id: 'bitcoin',
-    label: 'Bitcoin',
-    family: 'bitcoin',
-    explorerTx: 'https://mempool.space/tx/',
-    assets: [btcAsset, { id: 'USDT', label: 'USDt', decimals: 8, kind: 'token' }],
-    canSend: true,
-  },
-  spark: {
-    id: 'spark',
-    label: 'Lightning (Spark)',
-    family: 'spark',
-    assets: [btcAsset],
-    canSend: true,
-  },
-  ethereum: {
-    id: 'ethereum',
-    label: 'Ethereum',
-    family: 'evm',
-    chainId: 1,
-    rpcUrl: 'https://eth.llamarpc.com',
-    explorerTx: 'https://etherscan.io/tx/',
-    assets: [
-      { id: 'ETH', label: 'Ether', decimals: 18, kind: 'native' },
-      {
-        id: 'USDT',
-        label: 'USDt',
-        decimals: 6,
-        kind: 'token',
-        tokenAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-      },
-      {
-        id: 'XAUT',
-        label: 'XAUt',
-        decimals: 6,
-        kind: 'token',
-        tokenAddress: '0x68749665FF8D2d112Fa859AA293F07A622782F38',
-      },
-    ],
-    canSend: true,
-  },
-  polygon: {
-    id: 'polygon',
-    label: 'Polygon',
-    family: 'evm',
-    chainId: 137,
-    rpcUrl: 'https://polygon-rpc.com',
-    explorerTx: 'https://polygonscan.com/tx/',
-    assets: [
-      { id: 'POL', label: 'POL', decimals: 18, kind: 'native' },
-      {
-        id: 'USDT',
-        label: 'USDt',
-        decimals: 6,
-        kind: 'token',
-        tokenAddress: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
-      },
-    ],
-    canSend: true,
-  },
-  arbitrum: {
-    id: 'arbitrum',
-    label: 'Arbitrum',
-    family: 'evm',
-    chainId: 42161,
-    rpcUrl: 'https://arb1.arbitrum.io/rpc',
-    explorerTx: 'https://arbiscan.io/tx/',
-    assets: [
-      { id: 'ARB', label: 'ETH on Arbitrum', decimals: 18, kind: 'native' },
-      {
-        id: 'USDT',
-        label: 'USDt',
-        decimals: 6,
-        kind: 'token',
-        tokenAddress: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
-      },
-    ],
-    canSend: true,
-  },
-  plasma: {
-    id: 'plasma',
-    label: 'Plasma',
-    family: 'evm',
-    assets: [{ id: 'USDT', label: 'USDt', decimals: 6, kind: 'native' }],
-    canSend: false,
-  },
-  solana: {
-    id: 'solana',
-    label: 'Solana',
-    family: 'solana',
-    rpcUrl: 'https://api.mainnet-beta.solana.com',
-    explorerTx: 'https://solscan.io/tx/',
-    assets: [
-      { id: 'SOL', label: 'Solana', decimals: 9, kind: 'native' },
-      {
-        id: 'USDT',
-        label: 'USDt',
-        decimals: 6,
-        kind: 'token',
-        tokenAddress: 'Es9vMFrzaCERmJfrF4H2FYD4kConky11McCe8BenwNYB',
-      },
-    ],
-    canSend: true,
-  },
+const usdtOnBitcoin: AssetConfig = {
+  id: 'USDT',
+  label: 'USDt',
+  decimals: 8,
+  kind: 'token',
+};
+
+const ethAsset: AssetConfig = {
+  id: 'ETH',
+  label: 'Ether',
+  decimals: 18,
+  kind: 'native',
+};
+
+const solAsset: AssetConfig = {
+  id: 'SOL',
+  label: 'Solana',
+  decimals: 9,
+  kind: 'native',
+};
+
+const usdtOnEthereum: AssetConfig = {
+  id: 'USDT',
+  label: 'USDt',
+  decimals: 6,
+  kind: 'token',
+  tokenAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+};
+
+const xautOnEthereum: AssetConfig = {
+  id: 'XAUT',
+  label: 'XAUt',
+  decimals: 6,
+  kind: 'token',
+  tokenAddress: '0x68749665FF8D2d112Fa859AA293F07A622782F38',
+};
+
+const usdtOnPolygon: AssetConfig = {
+  id: 'USDT',
+  label: 'USDt',
+  decimals: 6,
+  kind: 'token',
+  tokenAddress: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
+};
+
+const usdtOnArbitrum: AssetConfig = {
+  id: 'USDT',
+  label: 'USDt',
+  decimals: 6,
+  kind: 'token',
+  tokenAddress: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
+};
+
+const usdtOnSolana: AssetConfig = {
+  id: 'USDT',
+  label: 'USDt',
+  decimals: 6,
+  kind: 'token',
+  tokenAddress: 'Es9vMFrzaCERmJfrF4H2FYD4kConky11McCe8BenwNYB',
+};
+
+const testUsdt: AssetConfig = {
+  id: 'USDT',
+  label: 'Test USDt',
+  decimals: 6,
+  kind: 'token',
 };
 
 export const CHAIN_ORDER: ChainId[] = [
@@ -124,11 +85,205 @@ export const CHAIN_ORDER: ChainId[] = [
   'solana',
 ];
 
-export function getAsset(chainId: ChainId, assetId: AssetId): AssetConfig {
-  const asset = CHAINS[chainId].assets.find((candidate) => candidate.id === assetId);
+export const CHAINS: Record<NetworkMode, Record<ChainId, ChainConfig>> = {
+  mainnet: {
+    bitcoin: {
+      id: 'bitcoin',
+      label: 'Bitcoin',
+      networkLabel: 'Bitcoin Mainnet',
+      networkMode: 'mainnet',
+      family: 'bitcoin',
+      bitcoinNetwork: 'bitcoin',
+      explorerTx: 'https://mempool.space/tx/',
+      assets: [btcAsset, usdtOnBitcoin],
+      canSend: true,
+    },
+    spark: {
+      id: 'spark',
+      label: 'Lightning (Spark)',
+      networkLabel: 'Spark Mainnet',
+      networkMode: 'mainnet',
+      family: 'spark',
+      sparkNetwork: 'MAINNET',
+      assets: [btcAsset],
+      canSend: true,
+    },
+    ethereum: {
+      id: 'ethereum',
+      label: 'Ethereum',
+      networkLabel: 'Ethereum Mainnet',
+      networkMode: 'mainnet',
+      family: 'evm',
+      chainId: 1,
+      rpcUrls: ['https://eth.llamarpc.com', 'https://ethereum-rpc.publicnode.com'],
+      explorerTx: 'https://etherscan.io/tx/',
+      assets: [ethAsset, usdtOnEthereum, xautOnEthereum],
+      canSend: true,
+    },
+    polygon: {
+      id: 'polygon',
+      label: 'Polygon',
+      networkLabel: 'Polygon Mainnet',
+      networkMode: 'mainnet',
+      family: 'evm',
+      chainId: 137,
+      rpcUrls: ['https://polygon-rpc.com', 'https://polygon-bor-rpc.publicnode.com'],
+      explorerTx: 'https://polygonscan.com/tx/',
+      assets: [{ id: 'POL', label: 'POL', decimals: 18, kind: 'native' }, usdtOnPolygon],
+      canSend: true,
+    },
+    arbitrum: {
+      id: 'arbitrum',
+      label: 'Arbitrum',
+      networkLabel: 'Arbitrum One',
+      networkMode: 'mainnet',
+      family: 'evm',
+      chainId: 42161,
+      rpcUrls: ['https://arb1.arbitrum.io/rpc', 'https://arbitrum-one-rpc.publicnode.com'],
+      explorerTx: 'https://arbiscan.io/tx/',
+      assets: [
+        { id: 'ARB', label: 'ETH on Arbitrum', decimals: 18, kind: 'native' },
+        usdtOnArbitrum,
+      ],
+      canSend: true,
+    },
+    plasma: {
+      id: 'plasma',
+      label: 'Plasma',
+      networkLabel: 'Plasma Mainnet Beta',
+      networkMode: 'mainnet',
+      family: 'evm',
+      chainId: 9745,
+      rpcUrls: ['https://rpc.plasma.to'],
+      explorerTx: 'https://plasmascan.to/tx/',
+      assets: [
+        { id: 'XPL', label: 'XPL', decimals: 18, kind: 'native' },
+        {
+          id: 'USDT',
+          label: 'USDT0',
+          decimals: 6,
+          kind: 'token',
+          tokenAddress: '0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb',
+        },
+      ],
+      canSend: true,
+      statusNote: 'Public Plasma RPC endpoints are rate-limited; production wallets should configure dedicated RPC access.',
+    },
+    solana: {
+      id: 'solana',
+      label: 'Solana',
+      networkLabel: 'Solana Mainnet Beta',
+      networkMode: 'mainnet',
+      family: 'solana',
+      rpcUrls: ['https://api.mainnet-beta.solana.com'],
+      explorerTx: 'https://solscan.io/tx/',
+      assets: [solAsset, usdtOnSolana],
+      canSend: true,
+    },
+  },
+  testnet: {
+    bitcoin: {
+      id: 'bitcoin',
+      label: 'Bitcoin',
+      networkLabel: 'Bitcoin Testnet',
+      networkMode: 'testnet',
+      family: 'bitcoin',
+      bitcoinNetwork: 'testnet',
+      explorerTx: 'https://mempool.space/testnet/tx/',
+      assets: [btcAsset, usdtOnBitcoin],
+      canSend: true,
+    },
+    spark: {
+      id: 'spark',
+      label: 'Lightning (Spark)',
+      networkLabel: 'Spark Regtest',
+      networkMode: 'testnet',
+      family: 'spark',
+      sparkNetwork: 'REGTEST',
+      assets: [btcAsset],
+      canSend: true,
+      statusNote: 'Spark test mode maps to the WDK REGTEST network and requires compatible Spark infrastructure.',
+    },
+    ethereum: {
+      id: 'ethereum',
+      label: 'Ethereum',
+      networkLabel: 'Ethereum Sepolia',
+      networkMode: 'testnet',
+      family: 'evm',
+      chainId: 11155111,
+      rpcUrls: ['https://ethereum-sepolia-rpc.publicnode.com', 'https://rpc.sepolia.org'],
+      explorerTx: 'https://sepolia.etherscan.io/tx/',
+      assets: [ethAsset, testUsdt],
+      canSend: true,
+    },
+    polygon: {
+      id: 'polygon',
+      label: 'Polygon',
+      networkLabel: 'Polygon Amoy',
+      networkMode: 'testnet',
+      family: 'evm',
+      chainId: 80002,
+      rpcUrls: ['https://polygon-amoy-bor-rpc.publicnode.com', 'https://rpc-amoy.polygon.technology'],
+      explorerTx: 'https://amoy.polygonscan.com/tx/',
+      assets: [{ id: 'POL', label: 'POL', decimals: 18, kind: 'native' }, testUsdt],
+      canSend: true,
+    },
+    arbitrum: {
+      id: 'arbitrum',
+      label: 'Arbitrum',
+      networkLabel: 'Arbitrum Sepolia',
+      networkMode: 'testnet',
+      family: 'evm',
+      chainId: 421614,
+      rpcUrls: ['https://sepolia-rollup.arbitrum.io/rpc', 'https://arbitrum-sepolia-rpc.publicnode.com'],
+      explorerTx: 'https://sepolia.arbiscan.io/tx/',
+      assets: [{ id: 'ARB', label: 'ETH on Arbitrum', decimals: 18, kind: 'native' }, testUsdt],
+      canSend: true,
+    },
+    plasma: {
+      id: 'plasma',
+      label: 'Plasma',
+      networkLabel: 'Plasma Testnet',
+      networkMode: 'testnet',
+      family: 'evm',
+      chainId: 9746,
+      rpcUrls: ['https://testnet-rpc.plasma.to'],
+      explorerTx: 'https://testnet.plasmascan.to/tx/',
+      assets: [
+        { id: 'XPL', label: 'Test XPL', decimals: 18, kind: 'native' },
+        { id: 'USDT', label: 'Test USDt', decimals: 6, kind: 'token' },
+      ],
+      canSend: true,
+      statusNote: 'Test USDt needs a configured token contract address before token transfers are enabled.',
+    },
+    solana: {
+      id: 'solana',
+      label: 'Solana',
+      networkLabel: 'Solana Devnet',
+      networkMode: 'testnet',
+      family: 'solana',
+      rpcUrls: ['https://api.devnet.solana.com'],
+      explorerTx: 'https://solscan.io/tx/',
+      assets: [solAsset, testUsdt],
+      canSend: true,
+    },
+  },
+};
+
+export function getChain(chainId: ChainId, networkMode: NetworkMode): ChainConfig {
+  return CHAINS[networkMode][chainId];
+}
+
+export function getChains(networkMode: NetworkMode): Record<ChainId, ChainConfig> {
+  return CHAINS[networkMode];
+}
+
+export function getAsset(chainId: ChainId, assetId: AssetId, networkMode: NetworkMode): AssetConfig {
+  const chain = getChain(chainId, networkMode);
+  const asset = chain.assets.find((candidate) => candidate.id === assetId);
 
   if (!asset) {
-    throw new Error(`${assetId} is not supported on ${CHAINS[chainId].label}.`);
+    throw new Error(`${assetId} is not supported on ${chain.networkLabel}.`);
   }
 
   return asset;

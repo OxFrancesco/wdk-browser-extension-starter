@@ -1,4 +1,4 @@
-import { CHAINS } from './chains';
+import { getChain } from './chains';
 import type { TransactionRecord } from './types';
 
 async function postJsonRpc<T>(url: string, method: string, params: unknown[]): Promise<T | null> {
@@ -29,26 +29,29 @@ async function getTransactionStatus(tx: TransactionRecord): Promise<TransactionR
     return tx.status;
   }
 
-  const chain = CHAINS[tx.chainId];
+  const chain = getChain(tx.chainId, tx.networkMode ?? 'mainnet');
 
   if (chain.family === 'bitcoin') {
-    const response = await fetch(`https://mempool.space/api/tx/${tx.hash}/status`);
+    const baseUrl = chain.networkMode === 'testnet'
+      ? 'https://mempool.space/testnet/api'
+      : 'https://mempool.space/api';
+    const response = await fetch(`${baseUrl}/tx/${tx.hash}/status`);
     if (!response.ok) return tx.status;
     const status = (await response.json()) as { confirmed?: boolean };
     return status.confirmed ? 'confirmed' : 'submitted';
   }
 
-  if (chain.family === 'evm' && chain.rpcUrl) {
-    const receipt = await postJsonRpc<{ status?: string }>(chain.rpcUrl, 'eth_getTransactionReceipt', [
+  if (chain.family === 'evm' && chain.rpcUrls?.[0]) {
+    const receipt = await postJsonRpc<{ status?: string }>(chain.rpcUrls[0], 'eth_getTransactionReceipt', [
       tx.hash,
     ]);
     if (!receipt) return 'submitted';
     return receipt.status === '0x0' ? 'failed' : 'confirmed';
   }
 
-  if (chain.family === 'solana' && chain.rpcUrl) {
+  if (chain.family === 'solana' && chain.rpcUrls?.[0]) {
     const result = await postJsonRpc<{ value: Array<{ confirmationStatus?: string; err?: unknown } | null> }>(
-      chain.rpcUrl,
+      chain.rpcUrls[0],
       'getSignatureStatuses',
       [[tx.hash], { searchTransactionHistory: true }],
     );

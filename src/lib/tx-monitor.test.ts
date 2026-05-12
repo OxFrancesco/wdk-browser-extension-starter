@@ -7,6 +7,7 @@ const baseTx: TransactionRecord = {
   id: 'tx-1',
   walletId: 'wallet-1',
   accountIndex: 0,
+  networkMode: 'mainnet',
   chainId: 'ethereum',
   assetId: 'ETH',
   to: '0xdAC17F958D2ee523a2206206994597C13D831ec7',

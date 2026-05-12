@@ -2,17 +2,21 @@ import { address as solanaAddress } from '@solana/addresses';
 import { address as bitcoinAddress, networks } from 'bitcoinjs-lib';
 import { isAddress as isEvmAddress } from 'ethers';
 
-import { CHAINS } from './chains';
-import type { ChainId } from './types';
+import { getChain } from './chains';
+import type { ChainId, NetworkMode } from './types';
 
-export function validateRecipientAddress(chainId: ChainId, recipient: string): string {
+export function validateRecipientAddress(
+  chainId: ChainId,
+  recipient: string,
+  networkMode: NetworkMode,
+): string {
   const value = recipient.trim();
 
   if (!value) {
     throw new Error('Recipient address is required.');
   }
 
-  const chain = CHAINS[chainId];
+  const chain = getChain(chainId, networkMode);
 
   if (chain.family === 'evm') {
     if (!isEvmAddress(value)) {
@@ -23,10 +27,13 @@ export function validateRecipientAddress(chainId: ChainId, recipient: string): s
 
   if (chain.family === 'bitcoin') {
     try {
-      bitcoinAddress.toOutputScript(value, networks.bitcoin);
+      bitcoinAddress.toOutputScript(
+        value,
+        chain.bitcoinNetwork === 'testnet' ? networks.testnet : networks.bitcoin,
+      );
       return value;
     } catch {
-      throw new Error('Enter a valid Bitcoin mainnet address.');
+      throw new Error(`Enter a valid ${chain.networkLabel} address.`);
     }
   }
 

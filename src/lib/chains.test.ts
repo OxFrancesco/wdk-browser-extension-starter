@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { CHAINS, formatBaseUnits, parseBaseUnits } from './chains';
+import { CHAINS, formatBaseUnits, getChains, parseBaseUnits } from './chains';
 
 describe('chain configuration', () => {
   it('covers the networks and assets required by the bounty brief', () => {
-    expect(Object.keys(CHAINS)).toEqual(
+    expect(Object.keys(getChains('mainnet'))).toEqual(
       expect.arrayContaining([
         'bitcoin',
         'spark',
@@ -16,8 +16,20 @@ describe('chain configuration', () => {
       ]),
     );
 
-    const assetIds = new Set(Object.values(CHAINS).flatMap((chain) => chain.assets.map((asset) => asset.id)));
+    const assetIds = new Set(
+      Object.values(getChains('mainnet')).flatMap((chain) => chain.assets.map((asset) => asset.id)),
+    );
     expect([...assetIds]).toEqual(expect.arrayContaining(['BTC', 'USDT', 'XAUT']));
+  });
+
+  it('has both mainnet and testnet definitions for each required network', () => {
+    expect(Object.keys(CHAINS.mainnet).sort()).toEqual(Object.keys(CHAINS.testnet).sort());
+    expect(CHAINS.mainnet.ethereum.chainId).toBe(1);
+    expect(CHAINS.testnet.ethereum.chainId).toBe(11155111);
+    expect(CHAINS.mainnet.plasma.chainId).toBe(9745);
+    expect(CHAINS.testnet.plasma.chainId).toBe(9746);
+    expect(CHAINS.testnet.bitcoin.bitcoinNetwork).toBe('testnet');
+    expect(CHAINS.testnet.solana.networkLabel).toBe('Solana Devnet');
   });
 });
 

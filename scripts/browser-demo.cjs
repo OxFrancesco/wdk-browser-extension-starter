@@ -15,15 +15,9 @@ async function pause(page, ms = 750) {
   await page.waitForTimeout(ms);
 }
 
-async function waitForSelectOption(page, selectIndex, label, timeout = 90_000) {
-  await page.waitForFunction(
-    ({ selectIndex, label }) => {
-      const select = document.querySelectorAll('select')[selectIndex];
-      return !!select && Array.from(select.options).some((option) => option.textContent?.trim() === label);
-    },
-    { selectIndex, label },
-    { timeout },
-  );
+async function selectByName(page, triggerIndex, optionName) {
+  await page.getByRole('combobox').nth(triggerIndex).click();
+  await page.getByRole('option', { name: optionName }).click();
 }
 
 async function main() {
@@ -63,22 +57,27 @@ async function main() {
     await pause(page);
     await page.getByRole('button', { name: /Create encrypted vault/i }).click();
 
-    await page.getByRole('button', { name: 'Refresh' }).waitFor({ timeout: 90_000 });
+    await page.getByText(/Account 1 on Ethereum Mainnet/i).waitFor({ timeout: 90_000 });
     await pause(page, 1_200);
 
+    await selectByName(page, 0, 'Testnet');
+    await page.getByText(/Account 1 on Ethereum Sepolia/i).waitFor({ timeout: 90_000 });
+    await pause(page, 1_000);
+
     await page.getByRole('button', { name: 'Add account' }).click();
-    await waitForSelectOption(page, 2, 'Account 2');
+    await selectByName(page, 3, 'Account 2');
+    await page.getByText(/Account 2 on Ethereum Sepolia/i).waitFor({ timeout: 90_000 });
     await pause(page, 1_000);
 
     await page.getByTitle('Add wallet').click();
-    await page.getByPlaceholder('Wallet name').fill('Second demo wallet');
-    await page.getByPlaceholder('Generate a seed or paste an existing BIP-39 phrase').fill(seed);
+    await page.locator('#new-wallet-name').fill('Second demo wallet');
+    await page.locator('#new-wallet-seed').fill(seed);
     await pause(page);
-    await page.locator('section.wallet-form button.primary').click();
-    await waitForSelectOption(page, 0, 'Second demo wallet');
+    await page.locator('[role="dialog"]').getByRole('button', { name: 'Add wallet' }).click();
+    await page.getByText('Second demo wallet').first().waitFor({ timeout: 90_000 });
     await pause(page, 1_000);
 
-    await page.locator('select').nth(1).selectOption({ label: 'Ethereum' });
+    await page.getByRole('tab', { name: 'Send' }).click();
     await page.getByPlaceholder('Recipient address').fill('not-an-address');
     await page.getByPlaceholder('Amount').fill('1');
     await pause(page);
@@ -86,12 +85,18 @@ async function main() {
     await page.getByText(/valid Ethereum address/i).waitFor({ timeout: 10_000 });
     await pause(page, 1_200);
 
+    await page.getByRole('tab', { name: 'WDK' }).click();
+    await pause(page);
+    await page.getByRole('button', { name: 'Execute primitive' }).click();
+    await page.getByText(/0x9858Ef/i).waitFor({ timeout: 30_000 });
+    await pause(page, 1_200);
+
     await page.getByTitle('Lock').click();
     await page.getByRole('button', { name: 'Unlock' }).waitFor({ timeout: 15_000 });
     await pause(page);
     await page.getByLabel('Password').fill(password);
     await page.getByRole('button', { name: 'Unlock' }).click();
-    await page.getByRole('button', { name: 'Refresh' }).waitFor({ timeout: 90_000 });
+    await page.getByText(/Account 1 on Ethereum Sepolia/i).waitFor({ timeout: 90_000 });
     await pause(page, 1_200);
   } finally {
     const video = page?.video();

@@ -5,6 +5,11 @@
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@": ["."],
+      "@/*": ["./*"]
+    },
     "moduleResolution": "Bundler",
     "skipLibCheck": true,
     "target": "ES2022"

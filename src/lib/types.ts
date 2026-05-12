@@ -7,7 +7,9 @@ export type ChainId =
   | 'plasma'
   | 'solana';
 
-export type AssetId = 'BTC' | 'USDT' | 'XAUT' | 'ETH' | 'POL' | 'ARB' | 'SOL';
+export type AssetId = 'BTC' | 'USDT' | 'XAUT' | 'ETH' | 'POL' | 'ARB' | 'SOL' | 'XPL';
+
+export type NetworkMode = 'mainnet' | 'testnet';
 
 export type SendStatus = 'draft' | 'quoted' | 'submitted' | 'confirmed' | 'failed';
 
@@ -23,6 +25,7 @@ export type TransactionRecord = {
   id: string;
   walletId: string;
   accountIndex: number;
+  networkMode: NetworkMode;
   chainId: ChainId;
   assetId: AssetId;
   to: string;
@@ -38,6 +41,7 @@ export type TransactionRecord = {
 export type VaultPlaintext = {
   version: 1;
   activeWalletId: string | null;
+  networkMode: NetworkMode;
   sessionTimeoutMinutes: number;
   wallets: VaultWallet[];
   transactions: TransactionRecord[];
@@ -64,12 +68,17 @@ export type AssetConfig = {
 export type ChainConfig = {
   id: ChainId;
   label: string;
+  networkLabel: string;
+  networkMode: NetworkMode;
   family: 'bitcoin' | 'spark' | 'evm' | 'solana';
   explorerTx?: string;
-  rpcUrl?: string;
+  rpcUrls?: string[];
+  bitcoinNetwork?: 'bitcoin' | 'testnet' | 'regtest';
+  sparkNetwork?: 'MAINNET' | 'REGTEST';
   chainId?: number;
   assets: AssetConfig[];
   canSend: boolean;
+  statusNote?: string;
 };
 
 export type AccountSnapshot = {
@@ -78,6 +87,8 @@ export type AccountSnapshot = {
   accountIndex: number;
   chainId: ChainId;
   chainLabel: string;
+  networkMode: NetworkMode;
+  networkLabel: string;
   address: string;
   balances: Array<{
     assetId: AssetId;
@@ -97,10 +108,12 @@ export type DashboardState = {
   locked: boolean;
   hasVault: boolean;
   activeWalletId: string | null;
+  networkMode: NetworkMode;
   sessionExpiresAt: number | null;
   wallets: Array<Omit<VaultWallet, 'seedPhrase'>>;
   accounts: AccountSnapshot[];
   transactions: TransactionRecord[];
+  primitives: WdkPrimitiveDefinition[];
 };
 
 export type SendRequest = {
@@ -117,4 +130,85 @@ export type SendQuote = {
   formattedFee: string;
   canBroadcast: boolean;
   warning?: string;
+};
+
+export type WdkPrimitiveCategory =
+  | 'core'
+  | 'wallet'
+  | 'evm'
+  | 'bitcoin'
+  | 'spark';
+
+export type WdkPrimitiveId =
+  | 'core:generateSeedPhrase'
+  | 'core:validateSeedPhrase'
+  | 'core:getAccount'
+  | 'core:getAccountByPath'
+  | 'core:getFeeRates'
+  | 'wallet:getAddress'
+  | 'wallet:getBalance'
+  | 'wallet:getTokenBalance'
+  | 'wallet:getTokenBalances'
+  | 'wallet:quoteSendTransaction'
+  | 'wallet:quoteTransfer'
+  | 'wallet:getTransactionReceipt'
+  | 'wallet:getTransfers'
+  | 'wallet:signMessage'
+  | 'wallet:verifyMessage'
+  | 'wallet:signTransaction'
+  | 'wallet:sendTransaction'
+  | 'wallet:transfer'
+  | 'evm:signTypedData'
+  | 'evm:verifyTypedData'
+  | 'evm:getAllowance'
+  | 'evm:approve'
+  | 'evm:getDelegation'
+  | 'evm:signAuthorization'
+  | 'evm:delegate'
+  | 'evm:revokeDelegation'
+  | 'bitcoin:getMaxSpendable'
+  | 'spark:getIdentityKey'
+  | 'spark:getUnusedDepositAddresses'
+  | 'spark:getStaticDepositAddresses'
+  | 'spark:getUtxosForDepositAddress'
+  | 'spark:getSparkInvoices'
+  | 'spark:getSingleUseDepositAddress'
+  | 'spark:getStaticDepositAddress'
+  | 'spark:claimDeposit'
+  | 'spark:claimStaticDeposit'
+  | 'spark:refundStaticDeposit'
+  | 'spark:quoteWithdraw'
+  | 'spark:withdraw'
+  | 'spark:createLightningInvoice'
+  | 'spark:getLightningReceiveRequest'
+  | 'spark:getLightningSendRequest'
+  | 'spark:payLightningInvoice'
+  | 'spark:quotePayLightningInvoice'
+  | 'spark:createSparkSatsInvoice'
+  | 'spark:createSparkTokensInvoice'
+  | 'spark:paySparkInvoice'
+  | 'spark:syncWalletBalance';
+
+export type WdkPrimitiveDefinition = {
+  id: WdkPrimitiveId;
+  label: string;
+  category: WdkPrimitiveCategory;
+  chains: ChainId[];
+  description: string;
+  payloadHint?: string;
+  mutates?: boolean;
+};
+
+export type PrimitiveRequest = {
+  walletId: string;
+  accountIndex: number;
+  chainId: ChainId;
+  operationId: WdkPrimitiveId;
+  payload: string;
+};
+
+export type PrimitiveResult = {
+  operationId: WdkPrimitiveId;
+  label: string;
+  result: string;
 };
