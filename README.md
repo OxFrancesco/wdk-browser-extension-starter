@@ -2,6 +2,8 @@
 
 Reference Chrome and Brave wallet extension built with WXT, React, TypeScript, Tailwind, and the local Tether WDK codebase in `docs/wdk`.
 
+Public repository: https://github.com/OxFrancesco/wdk-browser-extension-starter
+
 ## Stack
 
 - WXT Manifest V3 extension framework
