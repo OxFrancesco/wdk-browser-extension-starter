@@ -13,7 +13,7 @@ Use this outline for a narrated 2-5 minute demonstration video.
 
 1. Open `chrome://extensions` or `brave://extensions`, enable Developer Mode, and load `.output/chrome-mv3`.
 2. Open the WDK Wallet popup.
-3. Generate a seed phrase, enter a password with at least 10 characters, and create the encrypted vault.
+3. Generate a seed phrase, enter a password with at least 12 characters, and create the encrypted vault.
 4. Switch between Mainnet and Testnet, then move between Bitcoin, Spark, Ethereum, Polygon, Arbitrum, Plasma, and Solana.
 5. Add a second account and show that account addresses are derived separately.
 6. Add a second wallet from the sheet and switch back to the first wallet.

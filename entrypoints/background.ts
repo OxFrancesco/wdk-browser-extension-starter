@@ -10,7 +10,13 @@ import type {
   VaultWallet,
 } from '@/src/lib/types';
 import { refreshTransactionStatuses } from '@/src/lib/tx-monitor';
-import { decryptVault, encryptVault } from '@/src/lib/vault-crypto';
+import {
+  createVaultKey,
+  CURRENT_KDF_ITERATIONS,
+  encryptVaultWithKey,
+  openVault,
+  type VaultKey,
+} from '@/src/lib/vault-crypto';
 import {
   assertValidSeedPhrase,
   broadcastSend,
@@ -26,7 +32,7 @@ const vaultItem = storage.defineItem<VaultEnvelope | null>('local:wdk-vault', {
 });
 
 let sessionVault: VaultPlaintext | null = null;
-let sessionPassword: string | null = null;
+let sessionKey: VaultKey | null = null;
 let sessionExpiresAt: number | null = null;
 
 function normalizeVault(vault: VaultPlaintext): VaultPlaintext {
@@ -55,7 +61,7 @@ function createWallet(name: string, seedPhrase: string): VaultWallet {
 function assertUnlocked(): VaultPlaintext {
   if (!sessionVault || !sessionExpiresAt || sessionExpiresAt <= Date.now()) {
     sessionVault = null;
-    sessionPassword = null;
+    sessionKey = null;
     sessionExpiresAt = null;
     throw new Error('Wallet is locked.');
   }
@@ -65,11 +71,11 @@ function assertUnlocked(): VaultPlaintext {
 }
 
 async function persistSession(): Promise<void> {
-  if (!sessionVault || !sessionPassword) {
+  if (!sessionVault || !sessionKey) {
     throw new Error('No unlocked vault to persist.');
   }
 
-  await vaultItem.setValue(await encryptVault(sessionVault, sessionPassword));
+  await vaultItem.setValue(await encryptVaultWithKey(sessionVault, sessionKey));
 }
 
 async function refreshSessionTransactions(): Promise<void> {
@@ -97,7 +103,7 @@ async function buildDashboard(): Promise<DashboardState> {
 
   if (!vault) {
     sessionVault = null;
-    sessionPassword = null;
+    sessionKey = null;
     sessionExpiresAt = null;
 
     return {
@@ -139,8 +145,20 @@ async function buildDashboard(): Promise<DashboardState> {
   };
 }
 
+async function getPageBridgeStatus() {
+  const envelope = await vaultItem.getValue();
+  const unlocked = Boolean(sessionVault && sessionExpiresAt && sessionExpiresAt > Date.now());
+
+  return {
+    locked: !unlocked,
+    hasVault: Boolean(envelope),
+    networkMode: unlocked ? sessionVault?.networkMode ?? 'mainnet' : 'mainnet',
+  };
+}
+
 async function createVault(password: string, seedPhrase: string, name: string): Promise<DashboardState> {
   const wallet = createWallet(name, seedPhrase);
+  sessionKey = await createVaultKey(password);
 
   sessionVault = {
     version: 1,
@@ -150,7 +168,6 @@ async function createVault(password: string, seedPhrase: string, name: string): 
     wallets: [wallet],
     transactions: [],
   };
-  sessionPassword = password;
   sessionExpiresAt = Date.now() + sessionVault.sessionTimeoutMinutes * 60_000;
 
   await persistSession();
@@ -164,9 +181,15 @@ async function unlock(password: string): Promise<DashboardState> {
     throw new Error('No vault exists yet.');
   }
 
-  sessionVault = normalizeVault(await decryptVault(envelope, password));
-  sessionPassword = password;
+  const opened = await openVault(envelope, password);
+  sessionVault = normalizeVault(opened.vault);
+  sessionKey = opened.vaultKey;
   sessionExpiresAt = Date.now() + sessionVault.sessionTimeoutMinutes * 60_000;
+
+  if (opened.vaultKey.iterations < CURRENT_KDF_ITERATIONS) {
+    sessionKey = await createVaultKey(password, { enforcePasswordPolicy: false });
+    await persistSession();
+  }
 
   return buildDashboard();
 }
@@ -180,6 +203,10 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
     return buildDashboard();
   }
 
+  if (request.type === 'wallet:status') {
+    return getPageBridgeStatus();
+  }
+
   if (request.type === 'vault:create') {
     return createVault(request.password, request.seedPhrase, request.name);
   }
@@ -190,7 +217,7 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
 
   if (request.type === 'vault:lock') {
     sessionVault = null;
-    sessionPassword = null;
+    sessionKey = null;
     sessionExpiresAt = null;
     return buildDashboard();
   }

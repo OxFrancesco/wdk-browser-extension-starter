@@ -11,7 +11,7 @@ Public repository: https://github.com/OxFrancesco/wdk-browser-extension-starter
 - Tether WDK core from `file:docs/wdk`
 - WDK wallet modules for EVM, Bitcoin, Spark, and Solana
 - `@wxt-dev/storage` for extension-local encrypted vault storage
-- WebCrypto PBKDF2 + AES-GCM for seed phrase vault encryption
+- WebCrypto PBKDF2-SHA256 + AES-256-GCM for seed phrase vault encryption
 - Mainnet/testnet chain registry for every supported wallet network
 - Vitest for focused utility tests
 
@@ -39,7 +39,7 @@ npm run zip
 
 - `entrypoints/popup`: shadcn-based wallet UX for create/import, unlock, mainnet/testnet switching, balances, receive QR, send, filtered activity, and the WDK primitive console.
 - `entrypoints/background.ts`: privileged wallet runtime. It keeps decrypted seed phrases only in the service worker session, enforces lock/session timeout, persists encrypted vault data, derives WDK accounts, handles network switching, and routes send/quote/primitive actions.
-- `entrypoints/content.ts`: constrained page bridge. It only exposes lock/status data and never exposes seeds, signing, or broadcast APIs to arbitrary pages.
+- `entrypoints/content.ts`: constrained HTTPS page bridge. It only exposes lock/status data and never exposes accounts, balances, seeds, signing, or broadcast APIs to arbitrary pages.
 - `src/lib/wdk-adapter.ts`: WDK integration layer. It registers Bitcoin, Spark, EVM, Plasma, and Solana managers with the selected mainnet/testnet config, normalizes balances/addresses/quotes/sends, and exposes installed WDK primitives through a typed executor.
 - `src/lib/validation.ts`: automatic recipient address validation for EVM, Bitcoin, Solana, and Spark before quote or broadcast.
 - `src/lib/tx-monitor.ts`: background transaction status refresh for submitted EVM, Bitcoin, and Solana transactions.
@@ -50,10 +50,14 @@ npm run zip
 
 See `docs/SECURITY.md` for the fuller extension-specific security checklist.
 
-- Seed phrases are encrypted with PBKDF2-SHA256 and AES-GCM before storage.
+- New vaults require a 12-character minimum password.
+- Seed phrases are encrypted with PBKDF2-SHA256 at 600,000 iterations and AES-256-GCM before storage.
+- Older vault envelopes decrypt with their stored KDF settings and are upgraded to the current work factor after a successful unlock.
 - The popup never reads encrypted vault contents directly; it communicates through typed runtime messages.
-- The background session auto-locks after `sessionTimeoutMinutes`.
-- Content scripts do not receive private keys or seed phrases.
+- The background session auto-locks after `sessionTimeoutMinutes` and retains a non-extractable WebCrypto key instead of the plaintext password.
+- The production bundle excludes broad Node `crypto`/`vm` polyfills and maps Node-style crypto fallbacks to a narrow WebCrypto/Noble shim.
+- Content scripts do not receive private keys, seed phrases, account addresses, or balances.
+- Manifest host permissions are limited to explicit HTTPS RPC/indexer/operator endpoints for the configured networks.
 - Recipient addresses are validated per network before a quote or broadcast is attempted.
 - Live sends are routed through WDK wallet modules and fail closed when a module or RPC is not configured.
 - Plasma mainnet and testnet RPCs are configured; production wallets should still replace public endpoints with owned RPC infrastructure.

@@ -203,6 +203,7 @@ function App() {
       if (!response.ok) throw new Error(response.error);
       setDashboard(response.data);
       setSeedPhrase('');
+      setPassword('');
     }, 'Vault created');
   }
 
@@ -211,6 +212,7 @@ function App() {
       const response = await sendRuntimeMessage({ type: 'vault:unlock', password });
       if (!response.ok) throw new Error(response.error);
       setDashboard(response.data);
+      setPassword('');
     }, 'Wallet unlocked');
   }
 
@@ -315,6 +317,13 @@ function App() {
 
   async function executePrimitive() {
     if (!activeWallet) return;
+    if (
+      selectedPrimitive?.mutates &&
+      !window.confirm('This WDK primitive can mutate wallet or network state. Continue?')
+    ) {
+      return;
+    }
+
     const request: PrimitiveRequest = {
       walletId: activeWallet.id,
       accountIndex: selectedAccount,
@@ -412,7 +421,7 @@ function App() {
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="At least 10 characters"
+                  placeholder="At least 12 characters"
                 />
               </div>
             </CardContent>
@@ -428,7 +437,7 @@ function App() {
             <Shield />
             <AlertTitle>Encrypted vault</AlertTitle>
             <AlertDescription>
-              Seed phrases are protected with PBKDF2-SHA256 and AES-GCM before storage.
+              Seed phrases are protected with 600k PBKDF2-SHA256 iterations and AES-GCM.
             </AlertDescription>
           </Alert>
           {toast && <p className={`toast ${toast.tone}`}>{toast.message}</p>}

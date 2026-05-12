@@ -12,10 +12,10 @@ Objective: produce the browser-extension wallet starter described in `docs/Brows
 | shadcn components | `components.json`, `src/components/ui/*`, and popup imports from shadcn/Radix components | Implemented |
 | Background scripts | `entrypoints/background.ts` service worker | Implemented |
 | Message passing | Typed runtime messages in `src/lib/messages.ts`; background listener in `entrypoints/background.ts` | Implemented |
-| Secure storage | `@wxt-dev/storage` plus WebCrypto vault encryption in `src/lib/vault-crypto.ts` | Implemented |
+| Secure storage | `@wxt-dev/storage` plus PBKDF2-SHA256 600k/AES-256-GCM vault encryption in `src/lib/vault-crypto.ts` | Implemented |
 | Seed generation, recovery, validation | `generateSeedPhrase` and `assertValidSeedPhrase` in `src/lib/wdk-adapter.ts`; create/import popup flow | Implemented |
-| Password lock and session timeout | `vault:create`, `vault:unlock`, `vault:lock`, and session expiry logic in `entrypoints/background.ts` | Implemented |
-| Phishing/script-injection protection notes | Restricted content bridge in `entrypoints/content.ts`; documented in `docs/SECURITY.md` | Implemented as starter guidance |
+| Password lock and session timeout | `vault:create`, `vault:unlock`, `vault:lock`, plaintext password clearing, non-extractable session key, and session expiry logic in `entrypoints/background.ts` | Implemented |
+| Phishing/script-injection protection notes | HTTPS-only restricted content bridge in `entrypoints/content.ts`, explicit HTTPS host permissions and CSP in `wxt.config.ts`; documented in `docs/SECURITY.md` | Implemented as starter guidance |
 | Multiple wallets | Popup wallet selector/add sheet in `entrypoints/popup/App.tsx`; background `wallet:add` and `wallet:setActive`; browser E2E verifies a second wallet | Implemented |
 | Multiple accounts per wallet | Popup Add Account button and background `wallet:addAccount` | Implemented |
 | BTC, USDt, XAUt support | Asset registry in `src/lib/chains.ts`; test coverage in `src/lib/chains.test.ts` | Implemented |

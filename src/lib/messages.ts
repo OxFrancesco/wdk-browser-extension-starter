@@ -8,6 +8,12 @@ import type {
   SendRequest,
 } from './types';
 
+export type WalletStatus = {
+  locked: boolean;
+  hasVault: boolean;
+  networkMode: NetworkMode;
+};
+
 export type RuntimeRequest =
   | { type: 'vault:get' }
   | { type: 'vault:create'; password: string; seedPhrase: string; name: string }
@@ -15,6 +21,7 @@ export type RuntimeRequest =
   | { type: 'vault:lock' }
   | { type: 'network:set'; networkMode: NetworkMode }
   | { type: 'wallet:generateSeed' }
+  | { type: 'wallet:status' }
   | { type: 'wallet:add'; seedPhrase: string; name: string }
   | { type: 'wallet:addAccount'; walletId: string }
   | { type: 'wallet:setActive'; walletId: string }
@@ -34,6 +41,7 @@ export type RuntimeResponseData = {
   'vault:lock': DashboardState;
   'network:set': DashboardState;
   'wallet:generateSeed': string;
+  'wallet:status': WalletStatus;
   'wallet:add': DashboardState;
   'wallet:addAccount': DashboardState;
   'wallet:setActive': DashboardState;
