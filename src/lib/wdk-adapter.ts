@@ -4,7 +4,14 @@ import WalletManagerEvm from '@tetherto/wdk-wallet-evm';
 import WalletManagerSolana from '@tetherto/wdk-wallet-solana';
 import WalletManagerSpark from '@tetherto/wdk-wallet-spark';
 
-import { CHAIN_ORDER, formatBaseUnits, getAsset, getChain, parseBaseUnits } from './chains';
+import {
+  CHAIN_ORDER,
+  formatBaseUnits,
+  getAsset,
+  getChain,
+  parseBaseUnits,
+  withRpcPreferences,
+} from './chains';
 import type {
   AccountSnapshot,
   ChainConfig,
@@ -12,6 +19,7 @@ import type {
   NetworkMode,
   PrimitiveRequest,
   PrimitiveResult,
+  RpcPreferences,
   SendQuote,
   SendRequest,
   VaultWallet,
@@ -478,7 +486,7 @@ function registerChain(wdk: WDK, chain: ChainConfig): void {
       client: {
         type: 'blockbook-http',
         clientConfig: {
-          url: chain.networkMode === 'testnet' ? 'https://tbtc1.trezor.io/api' : 'https://btc1.trezor.io/api',
+          url: chain.rpcUrls?.[0] ?? 'https://btc1.trezor.io/api',
         },
       },
     } as never);
@@ -499,11 +507,15 @@ function registerChain(wdk: WDK, chain: ChainConfig): void {
   } as never);
 }
 
-function makeWdk(seedPhrase: string, networkMode: NetworkMode): WDK {
+function makeWdk(
+  seedPhrase: string,
+  networkMode: NetworkMode,
+  rpcPreferences?: RpcPreferences,
+): WDK {
   const wdk = new WDK(seedPhrase);
 
   for (const chainId of CHAIN_ORDER) {
-    registerChain(wdk, getChain(chainId, networkMode));
+    registerChain(wdk, withRpcPreferences(getChain(chainId, networkMode), rpcPreferences));
   }
 
   return wdk;
@@ -524,9 +536,10 @@ async function withAccount<T>(
   chainId: ChainId,
   accountIndex: number,
   networkMode: NetworkMode,
+  rpcPreferences: RpcPreferences | undefined,
   callback: (account: WdkAccount, wdk: WDK) => Promise<T>,
 ): Promise<T> {
-  const wdk = makeWdk(wallet.seedPhrase, networkMode);
+  const wdk = makeWdk(wallet.seedPhrase, networkMode, rpcPreferences);
 
   try {
     const account = (await wdk.getAccount(chainId, accountIndex)) as WdkAccount;
@@ -579,10 +592,11 @@ export async function getAccountSnapshot(
   chainId: ChainId,
   accountIndex: number,
   networkMode: NetworkMode,
+  rpcPreferences?: RpcPreferences,
 ): Promise<AccountSnapshot> {
-  const chain = getChain(chainId, networkMode);
+  const chain = withRpcPreferences(getChain(chainId, networkMode), rpcPreferences);
 
-  return withAccount(wallet, chainId, accountIndex, networkMode, async (account, wdk) => {
+  return withAccount(wallet, chainId, accountIndex, networkMode, rpcPreferences, async (account, wdk) => {
     let feeRates: AccountSnapshot['feeRates'];
 
     try {
@@ -628,8 +642,9 @@ export async function quoteSend(
   wallet: VaultWallet,
   request: SendRequest,
   networkMode: NetworkMode,
+  rpcPreferences?: RpcPreferences,
 ): Promise<SendQuote> {
-  const chain = getChain(request.chainId, networkMode);
+  const chain = withRpcPreferences(getChain(request.chainId, networkMode), rpcPreferences);
   const asset = getAsset(request.chainId, request.assetId, networkMode);
   const recipient = validateRecipientAddress(request.chainId, request.to, networkMode);
 
@@ -644,7 +659,7 @@ export async function quoteSend(
 
   const amount = parseBaseUnits(request.amount, asset.decimals);
 
-  return withAccount(wallet, request.chainId, request.accountIndex, networkMode, async (account) => {
+  return withAccount(wallet, request.chainId, request.accountIndex, networkMode, rpcPreferences, async (account) => {
     const tx =
       chain.family === 'evm'
         ? { to: recipient, value: amount }
@@ -691,8 +706,9 @@ export async function broadcastSend(
   wallet: VaultWallet,
   request: SendRequest,
   networkMode: NetworkMode,
+  rpcPreferences?: RpcPreferences,
 ): Promise<{ hash?: string; fee?: string }> {
-  const chain = getChain(request.chainId, networkMode);
+  const chain = withRpcPreferences(getChain(request.chainId, networkMode), rpcPreferences);
   const asset = getAsset(request.chainId, request.assetId, networkMode);
   const amount = parseBaseUnits(request.amount, asset.decimals);
   const recipient = validateRecipientAddress(request.chainId, request.to, networkMode);
@@ -701,7 +717,7 @@ export async function broadcastSend(
     throw new Error(chain.statusNote ?? `${chain.networkLabel} does not have live broadcast configuration.`);
   }
 
-  return withAccount(wallet, request.chainId, request.accountIndex, networkMode, async (account) => {
+  return withAccount(wallet, request.chainId, request.accountIndex, networkMode, rpcPreferences, async (account) => {
     const result =
       asset.kind === 'token'
         ? await account.transfer?.({
@@ -826,6 +842,7 @@ export async function executePrimitive(
   wallet: VaultWallet,
   request: PrimitiveRequest,
   networkMode: NetworkMode,
+  rpcPreferences?: RpcPreferences,
 ): Promise<PrimitiveResult> {
   const primitive = WDK_PRIMITIVES.find((candidate) => candidate.id === request.operationId);
   if (!primitive) throw new Error('Unsupported WDK primitive.');
@@ -839,6 +856,7 @@ export async function executePrimitive(
     request.chainId,
     request.accountIndex,
     networkMode,
+    rpcPreferences,
     async (account, wdk) => {
       switch (request.operationId) {
         case 'core:generateSeedPhrase': {

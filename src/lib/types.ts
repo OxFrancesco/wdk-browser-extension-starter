@@ -11,6 +11,8 @@ export type AssetId = 'BTC' | 'USDT' | 'XAUT' | 'ETH' | 'POL' | 'ARB' | 'SOL' | 
 
 export type NetworkMode = 'mainnet' | 'testnet';
 
+export type RpcPreferences = Partial<Record<NetworkMode, Partial<Record<ChainId, string[]>>>>;
+
 export type SendStatus = 'draft' | 'quoted' | 'submitted' | 'confirmed' | 'failed';
 
 export type VaultWallet = {
@@ -42,6 +44,7 @@ export type VaultPlaintext = {
   version: 1;
   activeWalletId: string | null;
   networkMode: NetworkMode;
+  rpcPreferences: RpcPreferences;
   sessionTimeoutMinutes: number;
   wallets: VaultWallet[];
   transactions: TransactionRecord[];
@@ -109,6 +112,7 @@ export type DashboardState = {
   hasVault: boolean;
   activeWalletId: string | null;
   networkMode: NetworkMode;
+  rpcPreferences: RpcPreferences;
   sessionExpiresAt: number | null;
   wallets: Array<Omit<VaultWallet, 'seedPhrase'>>;
   accounts: AccountSnapshot[];

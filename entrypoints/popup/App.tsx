@@ -10,6 +10,7 @@ import {
   Send,
   Settings,
   Shield,
+  Trash2,
   Wallet,
 } from 'lucide-react';
 
@@ -49,7 +50,16 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/src/components/ui/tabs';
 import { Textarea } from '@/src/components/ui/textarea';
 import { TooltipProvider } from '@/src/components/ui/tooltip';
-import { CHAIN_ORDER, getChain, getChains } from '@/src/lib/chains';
+import {
+  CHAIN_ORDER,
+  getBuiltinRpcUrls,
+  getChain,
+  getChains,
+  getCustomRpcUrls,
+  normalizeRpcUrl,
+  rpcPermissionPattern,
+  supportsCustomRpc,
+} from '@/src/lib/chains';
 import { sendRuntimeMessage } from '@/src/lib/messages';
 import type {
   AccountSnapshot,
@@ -69,6 +79,7 @@ const emptyDashboard: DashboardState = {
   hasVault: false,
   activeWalletId: null,
   networkMode: 'mainnet',
+  rpcPreferences: {},
   sessionExpiresAt: null,
   wallets: [],
   accounts: [],
@@ -104,6 +115,8 @@ function App() {
   const [sendForm, setSendForm] = useState({ to: '', amount: '', assetId: 'USDT' });
   const [quote, setQuote] = useState<string | null>(null);
   const [addWalletOpen, setAddWalletOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [rpcUrl, setRpcUrl] = useState('');
   const [newWalletName, setNewWalletName] = useState('Imported wallet');
   const [newWalletSeed, setNewWalletSeed] = useState('');
   const [primitiveId, setPrimitiveId] = useState<WdkPrimitiveId>('wallet:getAddress');
@@ -115,6 +128,13 @@ function App() {
   const chains = getChains(dashboard.networkMode);
   const chain = getChain(selectedChain, dashboard.networkMode);
   const selectedAsset = chain.assets.find((asset) => asset.id === sendForm.assetId) ?? chain.assets[0];
+  const customRpcSupported = supportsCustomRpc(chain);
+  const builtinRpcUrls = getBuiltinRpcUrls(selectedChain, dashboard.networkMode);
+  const customRpcUrls = getCustomRpcUrls(
+    dashboard.rpcPreferences,
+    selectedChain,
+    dashboard.networkMode,
+  );
 
   const selectedSnapshot = useMemo<AccountSnapshot | undefined>(
     () =>
@@ -259,6 +279,49 @@ function App() {
       setQuote(null);
       setPrimitiveResult('');
     }, `${networkMode === 'mainnet' ? 'Mainnet' : 'Testnet'} selected`);
+  }
+
+  async function requestRpcHostPermission(url: string) {
+    const originPattern = rpcPermissionPattern(url);
+    const granted = await browser.permissions.request({ origins: [originPattern] });
+
+    if (!granted) {
+      const hasPermission = await browser.permissions.contains({ origins: [originPattern] });
+      if (!hasPermission) throw new Error(`Host permission was not granted for ${new URL(url).origin}.`);
+    }
+  }
+
+  async function addRpcUrl() {
+    await run(async () => {
+      const url = normalizeRpcUrl(rpcUrl);
+      await requestRpcHostPermission(url);
+      const response = await sendRuntimeMessage({
+        type: 'rpc:add',
+        chainId: selectedChain,
+        networkMode: dashboard.networkMode,
+        url,
+      });
+      if (!response.ok) throw new Error(response.error);
+      setDashboard(response.data);
+      setRpcUrl('');
+      setQuote(null);
+      setPrimitiveResult('');
+    }, 'RPC added');
+  }
+
+  async function removeRpcUrl(url: string) {
+    await run(async () => {
+      const response = await sendRuntimeMessage({
+        type: 'rpc:remove',
+        chainId: selectedChain,
+        networkMode: dashboard.networkMode,
+        url,
+      });
+      if (!response.ok) throw new Error(response.error);
+      setDashboard(response.data);
+      setQuote(null);
+      setPrimitiveResult('');
+    }, 'RPC removed');
   }
 
   async function addAccount() {
@@ -463,6 +526,120 @@ function App() {
               </div>
             </div>
             <div className="flex gap-1">
+              <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="outline" size="icon-sm" title="Network RPCs">
+                    <Settings />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent className="w-[360px]" side="right">
+                  <SheetHeader>
+                    <SheetTitle>Network RPCs</SheetTitle>
+                    <SheetDescription>{chain.networkLabel}</SheetDescription>
+                  </SheetHeader>
+
+                  <div className="mt-4 flex flex-col gap-4">
+                    <div className="grid grid-cols-2 gap-2">
+                      <Select
+                        value={dashboard.networkMode}
+                        onValueChange={(value) => switchNetwork(value as NetworkMode)}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Network" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="mainnet">Mainnet</SelectItem>
+                            <SelectItem value="testnet">Testnet</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+
+                      <Select value={selectedChain} onValueChange={(value) => setSelectedChain(value as ChainId)}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Chain" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {CHAIN_ORDER.map((chainId) => (
+                              <SelectItem key={chainId} value={chainId}>
+                                {chains[chainId].label}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="custom-rpc">Custom RPC</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="custom-rpc"
+                          value={rpcUrl}
+                          onChange={(event) => setRpcUrl(event.target.value)}
+                          placeholder="https://rpc.example.com"
+                          disabled={!customRpcSupported}
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="icon-sm"
+                          title="Add RPC"
+                          disabled={busy || !customRpcSupported || !rpcUrl.trim()}
+                          onClick={addRpcUrl}
+                        >
+                          <Plus />
+                        </Button>
+                      </div>
+                      {!customRpcSupported && (
+                        <p className="text-xs text-muted-foreground">
+                          Spark endpoints are managed by the WDK Spark runtime.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <Label>Custom URLs</Label>
+                      {customRpcUrls.length ? (
+                        <div className="flex flex-col gap-2">
+                          {customRpcUrls.map((url) => (
+                            <div key={url} className="flex items-center gap-2 rounded-md border p-2">
+                              <span className="min-w-0 flex-1 break-all font-mono text-xs">{url}</span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                title="Remove RPC"
+                                onClick={() => removeRpcUrl(url)}
+                              >
+                                <Trash2 />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">No custom RPC URLs for this network.</p>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <Label>Built-in URLs</Label>
+                      {builtinRpcUrls.length ? (
+                        <div className="flex flex-col gap-2">
+                          {builtinRpcUrls.map((url) => (
+                            <div key={url} className="rounded-md border bg-muted/40 p-2 font-mono text-xs break-all">
+                              {url}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">No configurable RPC URLs.</p>
+                      )}
+                    </div>
+                  </div>
+                </SheetContent>
+              </Sheet>
               <Button variant="outline" size="icon-sm" title="Refresh" onClick={() => run(refresh, 'Balances refreshed')}>
                 <RefreshCcw />
               </Button>

@@ -1,5 +1,5 @@
-import { getChain } from './chains';
-import type { TransactionRecord } from './types';
+import { getChain, withRpcPreferences } from './chains';
+import type { RpcPreferences, TransactionRecord } from './types';
 
 async function postJsonRpc<T>(url: string, method: string, params: unknown[]): Promise<T | null> {
   const response = await fetch(url, {
@@ -24,12 +24,18 @@ async function postJsonRpc<T>(url: string, method: string, params: unknown[]): P
   return payload.result ?? null;
 }
 
-async function getTransactionStatus(tx: TransactionRecord): Promise<TransactionRecord['status']> {
+async function getTransactionStatus(
+  tx: TransactionRecord,
+  rpcPreferences?: RpcPreferences,
+): Promise<TransactionRecord['status']> {
   if (!tx.hash) {
     return tx.status;
   }
 
-  const chain = getChain(tx.chainId, tx.networkMode ?? 'mainnet');
+  const chain = withRpcPreferences(
+    getChain(tx.chainId, tx.networkMode ?? 'mainnet'),
+    rpcPreferences,
+  );
 
   if (chain.family === 'bitcoin') {
     const baseUrl = chain.networkMode === 'testnet'
@@ -68,6 +74,7 @@ async function getTransactionStatus(tx: TransactionRecord): Promise<TransactionR
 
 export async function refreshTransactionStatuses(
   transactions: TransactionRecord[],
+  rpcPreferences?: RpcPreferences,
 ): Promise<TransactionRecord[]> {
   const pending = transactions.filter((tx) => tx.status === 'submitted' && tx.hash);
   const refreshed = new Map<string, TransactionRecord>();
@@ -75,7 +82,7 @@ export async function refreshTransactionStatuses(
   await Promise.all(
     pending.map(async (tx) => {
       try {
-        const nextStatus = await getTransactionStatus(tx);
+        const nextStatus = await getTransactionStatus(tx, rpcPreferences);
         if (nextStatus !== tx.status) {
           refreshed.set(tx.id, { ...tx, status: nextStatus, updatedAt: Date.now() });
         }

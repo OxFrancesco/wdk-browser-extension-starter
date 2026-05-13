@@ -13,6 +13,7 @@ Public repository: https://github.com/OxFrancesco/wdk-browser-extension-starter
 - `@wxt-dev/storage` for extension-local encrypted vault storage
 - WebCrypto PBKDF2-SHA256 + AES-256-GCM for seed phrase vault encryption
 - Mainnet/testnet chain registry for every supported wallet network
+- Encrypted per-vault custom RPC preferences for supported mainnet/testnet chains
 - Vitest for focused utility tests
 
 ## Setup
@@ -40,11 +41,11 @@ npm run zip
 - `entrypoints/popup`: shadcn-based wallet UX for create/import, unlock, mainnet/testnet switching, balances, receive QR, send, filtered activity, and the WDK primitive console.
 - `entrypoints/background.ts`: privileged wallet runtime. It keeps decrypted seed phrases only in the service worker session, enforces lock/session timeout, persists encrypted vault data, derives WDK accounts, handles network switching, and routes send/quote/primitive actions.
 - `entrypoints/content.ts`: constrained HTTPS page bridge. It only exposes lock/status data and never exposes accounts, balances, seeds, signing, or broadcast APIs to arbitrary pages.
-- `src/lib/wdk-adapter.ts`: WDK integration layer. It registers Bitcoin, Spark, EVM, Plasma, and Solana managers with the selected mainnet/testnet config, normalizes balances/addresses/quotes/sends, and exposes installed WDK primitives through a typed executor.
+- `src/lib/wdk-adapter.ts`: WDK integration layer. It registers Bitcoin, Spark, EVM, Plasma, and Solana managers with the selected mainnet/testnet config plus encrypted RPC preferences, normalizes balances/addresses/quotes/sends, and exposes installed WDK primitives through a typed executor.
 - `src/lib/validation.ts`: automatic recipient address validation for EVM, Bitcoin, Solana, and Spark before quote or broadcast.
 - `src/lib/tx-monitor.ts`: background transaction status refresh for submitted EVM, Bitcoin, and Solana transactions.
 - `src/lib/vault-crypto.ts`: password-based vault encryption.
-- `src/lib/chains.ts`: mainnet/testnet network and asset registry for BTC, USDt, XAUt, and native gas assets.
+- `src/lib/chains.ts`: mainnet/testnet network, asset, built-in RPC, and custom RPC preference helpers for BTC, USDt, XAUt, and native gas assets.
 
 ## Security Notes
 
@@ -58,6 +59,7 @@ See `docs/SECURITY.md` for the fuller extension-specific security checklist.
 - The production bundle excludes broad Node `crypto`/`vm` polyfills and maps Node-style crypto fallbacks to a narrow WebCrypto/Noble shim.
 - Content scripts do not receive private keys, seed phrases, account addresses, or balances.
 - Manifest host permissions are limited to explicit HTTPS RPC/indexer/operator endpoints for the configured networks.
+- Custom RPC URLs are HTTPS-only, stored inside the encrypted vault, and require optional host permission for the RPC origin before use.
 - Recipient addresses are validated per network before a quote or broadcast is attempted.
 - Live sends are routed through WDK wallet modules and fail closed when a module or RPC is not configured.
 - Plasma mainnet and testnet RPCs are configured; production wallets should still replace public endpoints with owned RPC infrastructure.
@@ -69,6 +71,7 @@ The starter uses the WDK APIs available in the local beta codebase:
 - Seed phrase generation and validation
 - Multi-wallet and multi-account derivation
 - Mainnet/testnet registration for EVM, Bitcoin, Spark, and Solana WDK wallet modules across Bitcoin, Spark, Ethereum, Polygon, Arbitrum, Plasma, and Solana
+- Per-chain custom RPC URLs for Bitcoin Blockbook, EVM, and Solana mainnet/testnet profiles, with user-added URLs tried before built-in fallbacks
 - Address derivation for supported networks
 - Native/token balance lookups where the wallet module exposes providers
 - Send quotes and broadcasts where the selected module exposes those methods

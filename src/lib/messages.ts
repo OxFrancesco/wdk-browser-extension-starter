@@ -25,6 +25,8 @@ export type RuntimeRequest =
   | { type: 'wallet:add'; seedPhrase: string; name: string }
   | { type: 'wallet:addAccount'; walletId: string }
   | { type: 'wallet:setActive'; walletId: string }
+  | { type: 'rpc:add'; chainId: ChainId; networkMode: NetworkMode; url: string }
+  | { type: 'rpc:remove'; chainId: ChainId; networkMode: NetworkMode; url: string }
   | { type: 'wallet:refresh'; chainId?: ChainId }
   | { type: 'send:quote'; request: SendRequest }
   | { type: 'send:broadcast'; request: SendRequest }
@@ -45,6 +47,8 @@ export type RuntimeResponseData = {
   'wallet:add': DashboardState;
   'wallet:addAccount': DashboardState;
   'wallet:setActive': DashboardState;
+  'rpc:add': DashboardState;
+  'rpc:remove': DashboardState;
   'wallet:refresh': DashboardState;
   'send:quote': SendQuote;
   'send:broadcast': DashboardState;

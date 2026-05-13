@@ -1,4 +1,14 @@
-import type { AssetConfig, AssetId, ChainConfig, ChainId, NetworkMode } from './types';
+import type {
+  AssetConfig,
+  AssetId,
+  ChainConfig,
+  ChainId,
+  NetworkMode,
+  RpcPreferences,
+} from './types';
+
+const MAX_CUSTOM_RPC_URLS_PER_CHAIN = 5;
+const NETWORK_MODES: NetworkMode[] = ['mainnet', 'testnet'];
 
 const btcAsset: AssetConfig = {
   id: 'BTC',
@@ -94,6 +104,7 @@ export const CHAINS: Record<NetworkMode, Record<ChainId, ChainConfig>> = {
       networkMode: 'mainnet',
       family: 'bitcoin',
       bitcoinNetwork: 'bitcoin',
+      rpcUrls: ['https://btc1.trezor.io/api'],
       explorerTx: 'https://mempool.space/tx/',
       assets: [btcAsset, usdtOnBitcoin],
       canSend: true,
@@ -189,6 +200,7 @@ export const CHAINS: Record<NetworkMode, Record<ChainId, ChainConfig>> = {
       networkMode: 'testnet',
       family: 'bitcoin',
       bitcoinNetwork: 'testnet',
+      rpcUrls: ['https://tbtc1.trezor.io/api'],
       explorerTx: 'https://mempool.space/testnet/tx/',
       assets: [btcAsset, usdtOnBitcoin],
       canSend: true,
@@ -276,6 +288,154 @@ export function getChain(chainId: ChainId, networkMode: NetworkMode): ChainConfi
 
 export function getChains(networkMode: NetworkMode): Record<ChainId, ChainConfig> {
   return CHAINS[networkMode];
+}
+
+export function supportsCustomRpc(chain: ChainConfig): boolean {
+  return chain.family === 'bitcoin' || chain.family === 'evm' || chain.family === 'solana';
+}
+
+export function normalizeRpcUrl(url: string): string {
+  const trimmed = url.trim();
+
+  if (!trimmed || trimmed.length > 512) {
+    throw new Error('Enter a valid HTTPS RPC URL.');
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error('Enter a valid HTTPS RPC URL.');
+  }
+
+  if (parsed.protocol !== 'https:' || !parsed.hostname) {
+    throw new Error('Custom RPC URLs must use HTTPS.');
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error('Custom RPC URLs cannot include embedded credentials.');
+  }
+
+  parsed.hash = '';
+  return parsed.toString();
+}
+
+export function rpcPermissionPattern(url: string): string {
+  const parsed = new URL(normalizeRpcUrl(url));
+  return `${parsed.origin}/*`;
+}
+
+export function getBuiltinRpcUrls(chainId: ChainId, networkMode: NetworkMode): string[] {
+  return getChain(chainId, networkMode).rpcUrls ?? [];
+}
+
+export function normalizeRpcPreferences(
+  preferences: RpcPreferences | undefined,
+): RpcPreferences {
+  const normalized: RpcPreferences = {};
+
+  for (const networkMode of NETWORK_MODES) {
+    for (const chainId of CHAIN_ORDER) {
+      const chain = getChain(chainId, networkMode);
+      if (!supportsCustomRpc(chain)) continue;
+
+      const urls = preferences?.[networkMode]?.[chainId] ?? [];
+      const cleanUrls = [...new Set(urls.map((url) => {
+        try {
+          return normalizeRpcUrl(url);
+        } catch {
+          return '';
+        }
+      }).filter(Boolean))].slice(0, MAX_CUSTOM_RPC_URLS_PER_CHAIN);
+
+      if (cleanUrls.length) {
+        normalized[networkMode] = {
+          ...normalized[networkMode],
+          [chainId]: cleanUrls,
+        };
+      }
+    }
+  }
+
+  return normalized;
+}
+
+export function getCustomRpcUrls(
+  preferences: RpcPreferences | undefined,
+  chainId: ChainId,
+  networkMode: NetworkMode,
+): string[] {
+  return normalizeRpcPreferences(preferences)[networkMode]?.[chainId] ?? [];
+}
+
+export function getEffectiveRpcUrls(
+  chainId: ChainId,
+  networkMode: NetworkMode,
+  preferences?: RpcPreferences,
+): string[] {
+  return [
+    ...new Set([
+      ...getCustomRpcUrls(preferences, chainId, networkMode),
+      ...getBuiltinRpcUrls(chainId, networkMode),
+    ]),
+  ];
+}
+
+export function addRpcPreference(
+  preferences: RpcPreferences | undefined,
+  chainId: ChainId,
+  networkMode: NetworkMode,
+  url: string,
+): RpcPreferences {
+  const chain = getChain(chainId, networkMode);
+  if (!supportsCustomRpc(chain)) {
+    throw new Error(`${chain.label} does not expose a configurable RPC endpoint.`);
+  }
+
+  const normalizedUrl = normalizeRpcUrl(url);
+  const current = getCustomRpcUrls(preferences, chainId, networkMode);
+
+  if (current.includes(normalizedUrl)) {
+    return normalizeRpcPreferences(preferences);
+  }
+
+  if (current.length >= MAX_CUSTOM_RPC_URLS_PER_CHAIN) {
+    throw new Error(`Keep at most ${MAX_CUSTOM_RPC_URLS_PER_CHAIN} custom RPC URLs per chain.`);
+  }
+
+  return normalizeRpcPreferences({
+    ...preferences,
+    [networkMode]: {
+      ...preferences?.[networkMode],
+      [chainId]: [normalizedUrl, ...current],
+    },
+  });
+}
+
+export function removeRpcPreference(
+  preferences: RpcPreferences | undefined,
+  chainId: ChainId,
+  networkMode: NetworkMode,
+  url: string,
+): RpcPreferences {
+  const normalizedUrl = normalizeRpcUrl(url);
+  const current = getCustomRpcUrls(preferences, chainId, networkMode);
+
+  return normalizeRpcPreferences({
+    ...preferences,
+    [networkMode]: {
+      ...preferences?.[networkMode],
+      [chainId]: current.filter((candidate) => candidate !== normalizedUrl),
+    },
+  });
+}
+
+export function withRpcPreferences(
+  chain: ChainConfig,
+  preferences?: RpcPreferences,
+): ChainConfig {
+  const rpcUrls = getEffectiveRpcUrls(chain.id, chain.networkMode, preferences);
+  return rpcUrls.length ? { ...chain, rpcUrls } : chain;
 }
 
 export function getAsset(chainId: ChainId, assetId: AssetId, networkMode: NetworkMode): AssetConfig {

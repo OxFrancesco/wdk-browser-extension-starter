@@ -1,6 +1,13 @@
 import { storage } from '@wxt-dev/storage';
 
-import { CHAIN_ORDER } from '@/src/lib/chains';
+import {
+  addRpcPreference,
+  CHAIN_ORDER,
+  normalizeRpcPreferences,
+  normalizeRpcUrl,
+  removeRpcPreference,
+  rpcPermissionPattern,
+} from '@/src/lib/chains';
 import type { RuntimeRequest, RuntimeResponse } from '@/src/lib/messages';
 import type {
   DashboardState,
@@ -39,6 +46,7 @@ function normalizeVault(vault: VaultPlaintext): VaultPlaintext {
   return {
     ...vault,
     networkMode: vault.networkMode ?? 'mainnet',
+    rpcPreferences: normalizeRpcPreferences(vault.rpcPreferences),
     transactions: vault.transactions.map((transaction) => ({
       ...transaction,
       networkMode: transaction.networkMode ?? vault.networkMode ?? 'mainnet',
@@ -81,7 +89,10 @@ async function persistSession(): Promise<void> {
 async function refreshSessionTransactions(): Promise<void> {
   if (!sessionVault) return;
 
-  const nextTransactions = await refreshTransactionStatuses(sessionVault.transactions);
+  const nextTransactions = await refreshTransactionStatuses(
+    sessionVault.transactions,
+    sessionVault.rpcPreferences,
+  );
   const changed = nextTransactions.some(
     (transaction, index) => transaction !== sessionVault?.transactions[index],
   );
@@ -111,6 +122,7 @@ async function buildDashboard(): Promise<DashboardState> {
       hasVault: Boolean(envelope),
       activeWalletId: null,
       networkMode: 'mainnet',
+      rpcPreferences: {},
       sessionExpiresAt: null,
       wallets: [],
       accounts: [],
@@ -126,7 +138,13 @@ async function buildDashboard(): Promise<DashboardState> {
     ? await Promise.all(
         accountIndexes.flatMap((accountIndex) =>
           CHAIN_ORDER.map((chainId) =>
-            getAccountSnapshot(activeWallet, chainId, accountIndex, vault.networkMode),
+            getAccountSnapshot(
+              activeWallet,
+              chainId,
+              accountIndex,
+              vault.networkMode,
+              vault.rpcPreferences,
+            ),
           ),
         ),
       )
@@ -137,6 +155,7 @@ async function buildDashboard(): Promise<DashboardState> {
     hasVault: Boolean(envelope),
     activeWalletId: vault.activeWalletId,
     networkMode: vault.networkMode,
+    rpcPreferences: vault.rpcPreferences,
     sessionExpiresAt,
     wallets: vault.wallets.map(publicWallet),
     accounts,
@@ -164,6 +183,7 @@ async function createVault(password: string, seedPhrase: string, name: string): 
     version: 1,
     activeWalletId: wallet.id,
     networkMode: 'mainnet',
+    rpcPreferences: {},
     sessionTimeoutMinutes: 15,
     wallets: [wallet],
     transactions: [],
@@ -192,6 +212,15 @@ async function unlock(password: string): Promise<DashboardState> {
   }
 
   return buildDashboard();
+}
+
+async function assertRpcHostPermission(url: string): Promise<void> {
+  const originPattern = rpcPermissionPattern(url);
+  const hasPermission = await browser.permissions.contains({ origins: [originPattern] });
+
+  if (!hasPermission) {
+    throw new Error(`Grant host permission for ${new URL(url).origin} before adding this RPC.`);
+  }
 }
 
 async function handleRequest(request: RuntimeRequest): Promise<unknown> {
@@ -255,6 +284,30 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
     return buildDashboard();
   }
 
+  if (request.type === 'rpc:add') {
+    const url = normalizeRpcUrl(request.url);
+    await assertRpcHostPermission(url);
+    vault.rpcPreferences = addRpcPreference(
+      vault.rpcPreferences,
+      request.chainId,
+      request.networkMode,
+      url,
+    );
+    await persistSession();
+    return buildDashboard();
+  }
+
+  if (request.type === 'rpc:remove') {
+    vault.rpcPreferences = removeRpcPreference(
+      vault.rpcPreferences,
+      request.chainId,
+      request.networkMode,
+      request.url,
+    );
+    await persistSession();
+    return buildDashboard();
+  }
+
   if (request.type === 'wallet:refresh') {
     return buildDashboard();
   }
@@ -262,7 +315,7 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
   if (request.type === 'send:quote') {
     const wallet = vault.wallets.find((candidate) => candidate.id === request.request.walletId);
     if (!wallet) throw new Error('Wallet not found.');
-    return quoteSend(wallet, request.request, vault.networkMode);
+    return quoteSend(wallet, request.request, vault.networkMode, vault.rpcPreferences);
   }
 
   if (request.type === 'send:broadcast') {
@@ -280,7 +333,12 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
     };
 
     try {
-      const result = await broadcastSend(wallet, request.request, vault.networkMode);
+      const result = await broadcastSend(
+        wallet,
+        request.request,
+        vault.networkMode,
+        vault.rpcPreferences,
+      );
       record.hash = result.hash;
       record.fee = result.fee;
       record.status = 'submitted';
@@ -297,7 +355,7 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
   if (request.type === 'primitive:execute') {
     const wallet = vault.wallets.find((candidate) => candidate.id === request.request.walletId);
     if (!wallet) throw new Error('Wallet not found.');
-    return executePrimitive(wallet, request.request, vault.networkMode);
+    return executePrimitive(wallet, request.request, vault.networkMode, vault.rpcPreferences);
   }
 
   throw new Error('Unsupported request.');

@@ -21,6 +21,7 @@ Objective: produce the browser-extension wallet starter described in `docs/Brows
 | BTC, USDt, XAUt support | Asset registry in `src/lib/chains.ts`; test coverage in `src/lib/chains.test.ts` | Implemented |
 | Bitcoin, Spark, Ethereum, Polygon, Arbitrum, Plasma, Solana | Chain registry in `src/lib/chains.ts`; WDK registration in `src/lib/wdk-adapter.ts` | Implemented |
 | Mainnet and testnet support | `NetworkMode` model in `src/lib/types.ts`; dual configs in `src/lib/chains.ts`; `network:set` handling in `entrypoints/background.ts`; browser E2E switches modes | Implemented |
+| Custom RPC support | Encrypted `rpcPreferences` in the vault, HTTPS URL validation in `src/lib/chains.ts`, optional host permissions in `wxt.config.ts`, and RPC settings sheet in `entrypoints/popup/App.tsx` | Implemented for Bitcoin Blockbook, EVM, and Solana profiles |
 | WDK primitives from installed modules | `WDK_PRIMITIVES` and `executePrimitive` in `src/lib/wdk-adapter.ts`; popup WDK tab; `primitive:execute` runtime handler | Implemented for installed WDK modules; lifecycle registration/disposal is internal |
 | Transaction history | `TransactionRecord` model and popup activity section | Implemented |
 | Transaction history filtering | Activity status filter in `entrypoints/popup/App.tsx` | Implemented |
@@ -60,6 +61,7 @@ The Tether examples pull request is `https://github.com/tetherto/wdk-examples/pu
 ## Known Residual Risks
 
 - Public RPC/indexer endpoints are suitable for a starter/demo, not production.
+- Custom RPC URLs require user-granted host permission and are HTTPS-only; production defaults should still use owned, monitored infrastructure.
 - Plasma mainnet/testnet RPCs are configured, but production wallets should use dedicated RPC access and final token metadata.
 - WDK beta package APIs determine live balance, quote, signing, primitive execution, and broadcast behavior.
 - Spark test mode is wired to the WDK Spark regtest network and requires matching Spark infrastructure for live transaction flows.

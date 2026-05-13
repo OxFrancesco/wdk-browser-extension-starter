@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { CHAINS, formatBaseUnits, getChains, parseBaseUnits } from './chains';
+import {
+  addRpcPreference,
+  CHAINS,
+  formatBaseUnits,
+  getCustomRpcUrls,
+  getEffectiveRpcUrls,
+  getChains,
+  normalizeRpcPreferences,
+  normalizeRpcUrl,
+  parseBaseUnits,
+  removeRpcPreference,
+  rpcPermissionPattern,
+} from './chains';
 
 describe('chain configuration', () => {
   it('covers the networks and assets required by the bounty brief', () => {
@@ -30,6 +42,38 @@ describe('chain configuration', () => {
     expect(CHAINS.testnet.plasma.chainId).toBe(9746);
     expect(CHAINS.testnet.bitcoin.bitcoinNetwork).toBe('testnet');
     expect(CHAINS.testnet.solana.networkLabel).toBe('Solana Devnet');
+  });
+
+  it('normalizes HTTPS custom RPC preferences before built-in fallbacks', () => {
+    const preferences = addRpcPreference(
+      undefined,
+      'ethereum',
+      'mainnet',
+      'https://rpc.example.com/mainnet#ignored',
+    );
+
+    expect(getCustomRpcUrls(preferences, 'ethereum', 'mainnet')).toEqual([
+      'https://rpc.example.com/mainnet',
+    ]);
+    expect(getEffectiveRpcUrls('ethereum', 'mainnet', preferences)[0]).toBe(
+      'https://rpc.example.com/mainnet',
+    );
+    expect(removeRpcPreference(preferences, 'ethereum', 'mainnet', 'https://rpc.example.com/mainnet')).toEqual({});
+  });
+
+  it('rejects unsafe custom RPC URLs', () => {
+    expect(() => normalizeRpcUrl('http://rpc.example.com')).toThrow('HTTPS');
+    expect(() => normalizeRpcUrl('https://user:pass@rpc.example.com')).toThrow('credentials');
+    expect(() => addRpcPreference(undefined, 'spark', 'mainnet', 'https://rpc.example.com')).toThrow(
+      'configurable RPC',
+    );
+  });
+
+  it('derives optional host permission patterns from RPC origins', () => {
+    expect(rpcPermissionPattern('https://rpc.example.com/path?apiKey=test')).toBe(
+      'https://rpc.example.com/*',
+    );
+    expect(normalizeRpcPreferences({ mainnet: { ethereum: ['not a url'] } })).toEqual({});
   });
 });
 

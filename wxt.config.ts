@@ -13,6 +13,7 @@ export default defineConfig({
     description:
       'Reference Chrome and Brave extension wallet built with WXT and Tether WDK.',
     permissions: ['storage', 'alarms', 'clipboardWrite'],
+    optional_host_permissions: ['https://*/*'],
     host_permissions: [
       'https://0.spark.lightspark.com/*',
       'https://2.spark.flashnet.xyz/*',
