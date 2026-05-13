@@ -13,6 +13,20 @@ export type NetworkMode = 'mainnet' | 'testnet';
 
 export type RpcPreferences = Partial<Record<NetworkMode, Partial<Record<ChainId, string[]>>>>;
 
+export type EvmChainId = 'ethereum' | 'polygon' | 'arbitrum' | 'plasma';
+
+export type DappPermission = {
+  origin: string;
+  walletId: string;
+  accountIndex: number;
+  chainId: EvmChainId;
+  networkMode: NetworkMode;
+  approvedAt: number;
+  updatedAt: number;
+};
+
+export type DappPermissions = Record<string, DappPermission>;
+
 export type SendStatus = 'draft' | 'quoted' | 'submitted' | 'confirmed' | 'failed';
 
 export type VaultWallet = {
@@ -45,6 +59,7 @@ export type VaultPlaintext = {
   activeWalletId: string | null;
   networkMode: NetworkMode;
   rpcPreferences: RpcPreferences;
+  dappPermissions: DappPermissions;
   sessionTimeoutMinutes: number;
   wallets: VaultWallet[];
   transactions: TransactionRecord[];
@@ -113,6 +128,7 @@ export type DashboardState = {
   activeWalletId: string | null;
   networkMode: NetworkMode;
   rpcPreferences: RpcPreferences;
+  dappPermissions: DappPermissions;
   sessionExpiresAt: number | null;
   wallets: Array<Omit<VaultWallet, 'seedPhrase'>>;
   accounts: AccountSnapshot[];

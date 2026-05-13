@@ -16,6 +16,7 @@ import type {
   AccountSnapshot,
   ChainConfig,
   ChainId,
+  EvmChainId,
   NetworkMode,
   PrimitiveRequest,
   PrimitiveResult,
@@ -71,6 +72,20 @@ type WdkAccount = {
   createSparkTokensInvoice?: (options: unknown) => Promise<unknown>;
   paySparkInvoice?: (invoices: unknown[]) => Promise<unknown>;
   syncWalletBalance?: () => Promise<void>;
+};
+
+type Eip1193TransactionRequest = {
+  from?: string;
+  to?: string;
+  value?: string | number | bigint;
+  data?: string;
+  input?: string;
+  gas?: string | number | bigint;
+  gasLimit?: string | number | bigint;
+  gasPrice?: string | number | bigint;
+  maxFeePerGas?: string | number | bigint;
+  maxPriorityFeePerGas?: string | number | bigint;
+  nonce?: string | number;
 };
 
 export const WDK_PRIMITIVES: WdkPrimitiveDefinition[] = [
@@ -547,6 +562,116 @@ async function withAccount<T>(
   } finally {
     wdk.dispose();
   }
+}
+
+function parseHexQuantity(value: unknown): bigint | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number') return BigInt(value);
+  if (typeof value !== 'string') return undefined;
+  return value.startsWith('0x') ? BigInt(value) : BigInt(value);
+}
+
+function parseHexNumber(value: unknown): number | undefined {
+  const parsed = parseHexQuantity(value);
+  return parsed === undefined ? undefined : Number(parsed);
+}
+
+function decodePersonalSignMessage(value: unknown): string {
+  const message = String(value ?? '');
+  if (!/^0x([0-9a-fA-F]{2})*$/.test(message)) return message;
+
+  const bytes = new Uint8Array((message.length - 2) / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(message.slice(2 + index * 2, 4 + index * 2), 16);
+  }
+
+  try {
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return message;
+  }
+}
+
+function normalizeEip1193Transaction(tx: Eip1193TransactionRequest) {
+  const normalized: Record<string, unknown> = {
+    ...tx,
+    data: tx.data ?? tx.input,
+  };
+
+  const value = parseHexQuantity(tx.value);
+  const gasLimit = parseHexQuantity(tx.gasLimit ?? tx.gas);
+  const gasPrice = parseHexQuantity(tx.gasPrice);
+  const maxFeePerGas = parseHexQuantity(tx.maxFeePerGas);
+  const maxPriorityFeePerGas = parseHexQuantity(tx.maxPriorityFeePerGas);
+  const nonce = parseHexNumber(tx.nonce);
+
+  if (value !== undefined) normalized.value = value;
+  if (gasLimit !== undefined) normalized.gasLimit = gasLimit;
+  if (gasPrice !== undefined) normalized.gasPrice = gasPrice;
+  if (maxFeePerGas !== undefined) normalized.maxFeePerGas = maxFeePerGas;
+  if (maxPriorityFeePerGas !== undefined) normalized.maxPriorityFeePerGas = maxPriorityFeePerGas;
+  if (nonce !== undefined) normalized.nonce = nonce;
+
+  return normalized;
+}
+
+export async function getDappAccountAddress(
+  wallet: VaultWallet,
+  chainId: EvmChainId,
+  accountIndex: number,
+  networkMode: NetworkMode,
+  rpcPreferences?: RpcPreferences,
+): Promise<string> {
+  return withAccount(wallet, chainId, accountIndex, networkMode, rpcPreferences, (account) =>
+    account.getAddress(),
+  );
+}
+
+export async function signDappMessage(
+  wallet: VaultWallet,
+  chainId: EvmChainId,
+  accountIndex: number,
+  networkMode: NetworkMode,
+  message: unknown,
+  rpcPreferences?: RpcPreferences,
+): Promise<string> {
+  return withAccount(wallet, chainId, accountIndex, networkMode, rpcPreferences, (account) =>
+    requireMethod(account, 'sign').call(account, decodePersonalSignMessage(message)),
+  );
+}
+
+export async function signDappTypedData(
+  wallet: VaultWallet,
+  chainId: EvmChainId,
+  accountIndex: number,
+  networkMode: NetworkMode,
+  typedData: unknown,
+  rpcPreferences?: RpcPreferences,
+): Promise<string> {
+  const parsedTypedData = typeof typedData === 'string' ? JSON.parse(typedData) : typedData;
+  return withAccount(wallet, chainId, accountIndex, networkMode, rpcPreferences, (account) =>
+    requireMethod(account, 'signTypedData').call(account, parsedTypedData),
+  );
+}
+
+export async function sendDappTransaction(
+  wallet: VaultWallet,
+  chainId: EvmChainId,
+  accountIndex: number,
+  networkMode: NetworkMode,
+  transaction: Eip1193TransactionRequest,
+  rpcPreferences?: RpcPreferences,
+): Promise<string> {
+  const result = await withAccount(wallet, chainId, accountIndex, networkMode, rpcPreferences, (account) =>
+    requireMethod(account, 'sendTransaction').call(account, normalizeEip1193Transaction(transaction)),
+  );
+
+  if (!result.hash) {
+    throw new Error('The WDK EVM module did not return a transaction hash.');
+  }
+
+  return result.hash;
 }
 
 async function getBalance(account: WdkAccount, chain: ChainConfig, assetIndex: number) {

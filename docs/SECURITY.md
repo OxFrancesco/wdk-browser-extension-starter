@@ -18,7 +18,8 @@ This starter is intended as a browser-extension reference implementation, not a 
 - The background script owns WDK account derivation, signing, quoting, broadcasting, and transaction monitoring.
 - Manifest host permissions are restricted to explicit HTTPS RPC/indexer/operator endpoints used by the configured mainnet/testnet networks.
 - Custom RPC URLs are allowed only for HTTPS origins, cannot include embedded credentials, are stored in the encrypted vault, and use MV3 optional host permissions per origin instead of broad default access.
-- The content script only runs on HTTPS pages, answers `wallet:status` page messages, and never exposes accounts, balances, seed phrases, signing, or send/broadcast actions.
+- The content script only runs on HTTPS pages. It injects a page-context EIP-1193 provider, but privileged work stays in the background service worker.
+- EVM dApp origins must be approved before account exposure. Message signing, typed-data signing, and transaction broadcasts open separate extension-owned approval windows.
 - Extension CSP only allows self-hosted scripts plus `wasm-unsafe-eval` for WDK/WASM dependencies; remote scripts and extension-page framing are blocked.
 - The WXT/Vite build excludes broad Node `crypto`/`vm` polyfills. Service-worker crypto fallback paths use a narrow WebCrypto/Noble shim instead of `crypto-browserify` or `vm-browserify`.
 - Recipient addresses are validated per network before quoting or broadcasting.
@@ -31,7 +32,7 @@ This starter is intended as a browser-extension reference implementation, not a 
 - Add RPC health scoring, latency checks, and per-origin risk labeling before promoting custom endpoints to production defaults.
 - Pin final Plasma token metadata and use dedicated Plasma RPC access before production release.
 - Provide compatible Spark infrastructure for test-mode/regtest workflows.
-- Add explicit allowlists, per-origin consent, and transaction preview prompts before exposing dApp connection or signing APIs.
+- Add richer transaction simulation, spender risk checks, and persistent per-origin management before production dApp signing rollout.
 - Add hardware-wallet or passkey-backed unlock options if required by product policy.
 - Move the extension icon assets from WXT placeholders to final brand assets before submission.
 - Track the low-severity `elliptic` advisory chain currently pulled through `@tetherto/wdk-wallet-btc -> bitcoinjs-message -> secp256k1 -> elliptic`.

@@ -39,6 +39,7 @@ async function main() {
 
     page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
     page.on('console', (message) => {
+      if (message.text().includes('Failed to load resource')) return;
       if (message.type() === 'error') errors.push(`console error: ${message.text()}`);
     });
 
@@ -79,6 +80,31 @@ async function main() {
     await page.getByRole('button', { name: 'Unlock' }).click();
     await page.getByText(/Account 1 on Ethereum Sepolia/i).waitFor({ timeout: 90_000 });
 
+    const dappPage = await context.newPage();
+    dappPage.on('pageerror', (error) => errors.push(`dapp pageerror: ${error.message}`));
+    dappPage.on('console', (message) => {
+      if (message.text().includes('Failed to load resource')) return;
+      if (message.type() === 'error') errors.push(`dapp console error: ${message.text()}`);
+    });
+    await dappPage.goto('https://example.com');
+    await dappPage.waitForFunction(() => Boolean(window.ethereum?.isWDKWallet), null, { timeout: 15_000 });
+    const accountRequest = dappPage.evaluate(() => window.ethereum.request({ method: 'eth_requestAccounts' }));
+    const approvalPage = await context.waitForEvent('page', {
+      predicate: (candidate) => candidate.url().startsWith(`chrome-extension://${extensionId}/connect.html`),
+      timeout: 15_000,
+    });
+    await approvalPage.getByText('Connect website').waitFor({ timeout: 15_000 });
+    await approvalPage.getByRole('button', { name: 'Approve' }).click();
+    const dappAccounts = await accountRequest;
+    if (!Array.isArray(dappAccounts) || !/^0x[0-9a-fA-F]{40}$/.test(dappAccounts[0] ?? '')) {
+      throw new Error('Injected Ethereum provider did not return an EVM account.');
+    }
+    const dappChainId = await dappPage.evaluate(() => window.ethereum.request({ method: 'eth_chainId' }));
+    if (dappChainId !== '0xaa36a7') {
+      throw new Error(`Expected Sepolia chain id 0xaa36a7, got ${dappChainId}.`);
+    }
+    await dappPage.close();
+
     await page.screenshot({ path: screenshotPath, fullPage: true });
     const visibleText = await page.locator('body').innerText();
     const result = {
@@ -94,6 +120,8 @@ async function main() {
         'validated invalid Ethereum recipient before quote',
         'executed a WDK primitive through the popup console',
         'locked and unlocked existing vault',
+        'injected MetaMask-compatible EIP-1193 provider',
+        'approved eth_requestAccounts from a website',
       ],
       textSample: visibleText.slice(0, 900),
       errors,

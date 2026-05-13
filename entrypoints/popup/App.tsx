@@ -80,6 +80,7 @@ const emptyDashboard: DashboardState = {
   activeWalletId: null,
   networkMode: 'mainnet',
   rpcPreferences: {},
+  dappPermissions: {},
   sessionExpiresAt: null,
   wallets: [],
   accounts: [],

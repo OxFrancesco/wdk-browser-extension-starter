@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WDK Wallet Request</title>
+    <link rel="stylesheet" href="connect.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="brand">
+        <div class="mark">W</div>
+        <div>
+          <h1 id="title">Wallet request</h1>
+          <p id="origin">Loading...</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <p id="description"></p>
+        <dl>
+          <div>
+            <dt>Network</dt>
+            <dd id="network">-</dd>
+          </div>
+          <div>
+            <dt>Account</dt>
+            <dd id="address">-</dd>
+          </div>
+        </dl>
+        <pre id="payload" hidden></pre>
+      </section>
+
+      <footer>
+        <button id="reject" type="button">Reject</button>
+        <button id="approve" type="button">Approve</button>
+      </footer>
+    </main>
+    <script src="connect.js"></script>
+  </body>
+</html>

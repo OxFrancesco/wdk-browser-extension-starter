@@ -3,12 +3,14 @@ import type {
   AssetId,
   ChainConfig,
   ChainId,
+  EvmChainId,
   NetworkMode,
   RpcPreferences,
 } from './types';
 
 const MAX_CUSTOM_RPC_URLS_PER_CHAIN = 5;
 const NETWORK_MODES: NetworkMode[] = ['mainnet', 'testnet'];
+export const EVM_CHAIN_ORDER: EvmChainId[] = ['ethereum', 'polygon', 'arbitrum', 'plasma'];
 
 const btcAsset: AssetConfig = {
   id: 'BTC',
@@ -288,6 +290,37 @@ export function getChain(chainId: ChainId, networkMode: NetworkMode): ChainConfi
 
 export function getChains(networkMode: NetworkMode): Record<ChainId, ChainConfig> {
   return CHAINS[networkMode];
+}
+
+export function getEvmChain(chainId: EvmChainId, networkMode: NetworkMode): ChainConfig & { chainId: number } {
+  const chain = getChain(chainId, networkMode);
+  if (chain.family !== 'evm' || typeof chain.chainId !== 'number') {
+    throw new Error(`${chain.label} is not an EVM chain.`);
+  }
+
+  return chain as ChainConfig & { chainId: number };
+}
+
+export function toHexChainId(chainId: number): string {
+  return `0x${chainId.toString(16)}`;
+}
+
+export function findEvmChainByHexId(
+  hexChainId: string,
+): { chainId: EvmChainId; networkMode: NetworkMode; chain: ChainConfig & { chainId: number } } | null {
+  const parsed = Number.parseInt(hexChainId, 16);
+  if (!Number.isSafeInteger(parsed)) return null;
+
+  for (const networkMode of NETWORK_MODES) {
+    for (const chainId of EVM_CHAIN_ORDER) {
+      const chain = getEvmChain(chainId, networkMode);
+      if (chain.chainId === parsed) {
+        return { chainId, networkMode, chain };
+      }
+    }
+  }
+
+  return null;
 }
 
 export function supportsCustomRpc(chain: ChainConfig): boolean {

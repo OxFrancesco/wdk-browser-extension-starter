@@ -44,6 +44,12 @@ export default defineConfig({
     content_security_policy: {
       extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
     },
+    web_accessible_resources: [
+      {
+        resources: ['ethereum-provider.js'],
+        matches: ['https://*/*'],
+      },
+    ],
     action: {
       default_title: 'WDK Wallet',
     },

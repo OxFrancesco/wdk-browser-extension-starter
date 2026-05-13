@@ -22,6 +22,7 @@ Objective: produce the browser-extension wallet starter described in `docs/Brows
 | Bitcoin, Spark, Ethereum, Polygon, Arbitrum, Plasma, Solana | Chain registry in `src/lib/chains.ts`; WDK registration in `src/lib/wdk-adapter.ts` | Implemented |
 | Mainnet and testnet support | `NetworkMode` model in `src/lib/types.ts`; dual configs in `src/lib/chains.ts`; `network:set` handling in `entrypoints/background.ts`; browser E2E switches modes | Implemented |
 | Custom RPC support | Encrypted `rpcPreferences` in the vault, HTTPS URL validation in `src/lib/chains.ts`, optional host permissions in `wxt.config.ts`, and RPC settings sheet in `entrypoints/popup/App.tsx` | Implemented for Bitcoin Blockbook, EVM, and Solana profiles |
+| Website dApp connection | `public/ethereum-provider.js` injects `window.ethereum`; `entrypoints/content.ts` bridges EIP-1193 requests; `entrypoints/background.ts` enforces per-origin approval; browser E2E approves `eth_requestAccounts` from an HTTPS page | Implemented for EVM dApps |
 | WDK primitives from installed modules | `WDK_PRIMITIVES` and `executePrimitive` in `src/lib/wdk-adapter.ts`; popup WDK tab; `primitive:execute` runtime handler | Implemented for installed WDK modules; lifecycle registration/disposal is internal |
 | Transaction history | `TransactionRecord` model and popup activity section | Implemented |
 | Transaction history filtering | Activity status filter in `entrypoints/popup/App.tsx` | Implemented |
@@ -64,6 +65,7 @@ The Tether examples pull request is `https://github.com/tetherto/wdk-examples/pu
 - Custom RPC URLs require user-granted host permission and are HTTPS-only; production defaults should still use owned, monitored infrastructure.
 - Plasma mainnet/testnet RPCs are configured, but production wallets should use dedicated RPC access and final token metadata.
 - WDK beta package APIs determine live balance, quote, signing, primitive execution, and broadcast behavior.
+- The EIP-1193 website provider currently covers EVM dApps. Solana, Bitcoin, and Spark website connection standards are separate follow-up integrations.
 - Spark test mode is wired to the WDK Spark regtest network and requires matching Spark infrastructure for live transaction flows.
 - The local WDK docs reference optional TON/TRON modules, but those packages are not installed in this starter. Their primitives become in scope after adding the corresponding WDK wallet modules.
 - `npm audit --omit=dev` reports low-severity advisories through Bitcoin wallet dependencies.

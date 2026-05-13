@@ -14,6 +14,23 @@ export type WalletStatus = {
   networkMode: NetworkMode;
 };
 
+export type DappRequest = {
+  origin: string;
+  method: string;
+  params?: unknown;
+};
+
+export type DappApproval = {
+  id: string;
+  origin: string;
+  action: 'connect' | 'sign' | 'transaction';
+  title: string;
+  description: string;
+  chainLabel?: string;
+  address?: string;
+  payload?: string;
+};
+
 export type RuntimeRequest =
   | { type: 'vault:get' }
   | { type: 'vault:create'; password: string; seedPhrase: string; name: string }
@@ -22,6 +39,9 @@ export type RuntimeRequest =
   | { type: 'network:set'; networkMode: NetworkMode }
   | { type: 'wallet:generateSeed' }
   | { type: 'wallet:status' }
+  | { type: 'dapp:request'; request: DappRequest }
+  | { type: 'dapp:approval:get'; id: string }
+  | { type: 'dapp:approval:resolve'; id: string; approved: boolean }
   | { type: 'wallet:add'; seedPhrase: string; name: string }
   | { type: 'wallet:addAccount'; walletId: string }
   | { type: 'wallet:setActive'; walletId: string }
@@ -44,6 +64,9 @@ export type RuntimeResponseData = {
   'network:set': DashboardState;
   'wallet:generateSeed': string;
   'wallet:status': WalletStatus;
+  'dapp:request': unknown;
+  'dapp:approval:get': DappApproval | null;
+  'dapp:approval:resolve': null;
   'wallet:add': DashboardState;
   'wallet:addAccount': DashboardState;
   'wallet:setActive': DashboardState;
