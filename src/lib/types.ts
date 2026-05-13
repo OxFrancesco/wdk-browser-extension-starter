@@ -1,4 +1,6 @@
-export type ChainId =
+export type NetworkMode = 'mainnet' | 'testnet';
+
+export type BuiltinChainId =
   | 'bitcoin'
   | 'spark'
   | 'ethereum'
@@ -7,13 +9,36 @@ export type ChainId =
   | 'plasma'
   | 'solana';
 
-export type AssetId = 'BTC' | 'USDT' | 'XAUT' | 'ETH' | 'POL' | 'ARB' | 'SOL' | 'XPL';
+export type BuiltinEvmChainId = 'ethereum' | 'polygon' | 'arbitrum' | 'plasma';
 
-export type NetworkMode = 'mainnet' | 'testnet';
+export type CustomEvmChainId = `eip155:${number}`;
+
+export type ChainId = BuiltinChainId | CustomEvmChainId;
+
+export type EvmChainId = BuiltinEvmChainId | CustomEvmChainId;
+
+export type AssetId = string;
 
 export type RpcPreferences = Partial<Record<NetworkMode, Partial<Record<ChainId, string[]>>>>;
 
-export type EvmChainId = 'ethereum' | 'polygon' | 'arbitrum' | 'plasma';
+export type CustomEvmChain = {
+  id: CustomEvmChainId;
+  chainId: number;
+  label: string;
+  networkLabel: string;
+  networkMode: NetworkMode;
+  rpcUrls: string[];
+  explorerTx?: string;
+  nativeCurrency: {
+    name: string;
+    symbol: string;
+    decimals: number;
+  };
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type CustomEvmChains = Partial<Record<NetworkMode, Partial<Record<CustomEvmChainId, CustomEvmChain>>>>;
 
 export type DappPermission = {
   origin: string;
@@ -58,6 +83,7 @@ export type VaultPlaintext = {
   version: 1;
   activeWalletId: string | null;
   networkMode: NetworkMode;
+  customEvmChains: CustomEvmChains;
   rpcPreferences: RpcPreferences;
   dappPermissions: DappPermissions;
   sessionTimeoutMinutes: number;
@@ -127,6 +153,7 @@ export type DashboardState = {
   hasVault: boolean;
   activeWalletId: string | null;
   networkMode: NetworkMode;
+  customEvmChains: CustomEvmChains;
   rpcPreferences: RpcPreferences;
   dappPermissions: DappPermissions;
   sessionExpiresAt: number | null;

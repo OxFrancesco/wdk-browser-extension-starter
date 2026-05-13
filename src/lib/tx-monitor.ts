@@ -1,5 +1,5 @@
 import { getChain, withRpcPreferences } from './chains';
-import type { RpcPreferences, TransactionRecord } from './types';
+import type { CustomEvmChains, RpcPreferences, TransactionRecord } from './types';
 
 async function postJsonRpc<T>(url: string, method: string, params: unknown[]): Promise<T | null> {
   const response = await fetch(url, {
@@ -27,13 +27,14 @@ async function postJsonRpc<T>(url: string, method: string, params: unknown[]): P
 async function getTransactionStatus(
   tx: TransactionRecord,
   rpcPreferences?: RpcPreferences,
+  customEvmChains?: CustomEvmChains,
 ): Promise<TransactionRecord['status']> {
   if (!tx.hash) {
     return tx.status;
   }
 
   const chain = withRpcPreferences(
-    getChain(tx.chainId, tx.networkMode ?? 'mainnet'),
+    getChain(tx.chainId, tx.networkMode ?? 'mainnet', customEvmChains),
     rpcPreferences,
   );
 
@@ -75,6 +76,7 @@ async function getTransactionStatus(
 export async function refreshTransactionStatuses(
   transactions: TransactionRecord[],
   rpcPreferences?: RpcPreferences,
+  customEvmChains?: CustomEvmChains,
 ): Promise<TransactionRecord[]> {
   const pending = transactions.filter((tx) => tx.status === 'submitted' && tx.hash);
   const refreshed = new Map<string, TransactionRecord>();
@@ -82,7 +84,7 @@ export async function refreshTransactionStatuses(
   await Promise.all(
     pending.map(async (tx) => {
       try {
-        const nextStatus = await getTransactionStatus(tx, rpcPreferences);
+        const nextStatus = await getTransactionStatus(tx, rpcPreferences, customEvmChains);
         if (nextStatus !== tx.status) {
           refreshed.set(tx.id, { ...tx, status: nextStatus, updatedAt: Date.now() });
         }

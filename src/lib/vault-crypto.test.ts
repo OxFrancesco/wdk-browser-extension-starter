@@ -14,6 +14,7 @@ const vault: VaultPlaintext = {
   version: 1,
   activeWalletId: 'wallet-1',
   networkMode: 'mainnet',
+  customEvmChains: {},
   rpcPreferences: {},
   dappPermissions: {},
   sessionTimeoutMinutes: 15,

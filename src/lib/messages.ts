@@ -1,5 +1,6 @@
 import type {
   ChainId,
+  CustomEvmChainId,
   DashboardState,
   NetworkMode,
   PrimitiveRequest,
@@ -23,12 +24,13 @@ export type DappRequest = {
 export type DappApproval = {
   id: string;
   origin: string;
-  action: 'connect' | 'sign' | 'transaction';
+  action: 'connect' | 'sign' | 'transaction' | 'chain';
   title: string;
   description: string;
   chainLabel?: string;
   address?: string;
   payload?: string;
+  permissionOrigins?: string[];
 };
 
 export type RuntimeRequest =
@@ -47,6 +49,7 @@ export type RuntimeRequest =
   | { type: 'wallet:setActive'; walletId: string }
   | { type: 'rpc:add'; chainId: ChainId; networkMode: NetworkMode; url: string }
   | { type: 'rpc:remove'; chainId: ChainId; networkMode: NetworkMode; url: string }
+  | { type: 'chain:removeCustom'; chainId: CustomEvmChainId; networkMode: NetworkMode }
   | { type: 'wallet:refresh'; chainId?: ChainId }
   | { type: 'send:quote'; request: SendRequest }
   | { type: 'send:broadcast'; request: SendRequest }
@@ -72,6 +75,7 @@ export type RuntimeResponseData = {
   'wallet:setActive': DashboardState;
   'rpc:add': DashboardState;
   'rpc:remove': DashboardState;
+  'chain:removeCustom': DashboardState;
   'wallet:refresh': DashboardState;
   'send:quote': SendQuote;
   'send:broadcast': DashboardState;

@@ -18,6 +18,7 @@ This starter is intended as a browser-extension reference implementation, not a 
 - The background script owns WDK account derivation, signing, quoting, broadcasting, and transaction monitoring.
 - Manifest host permissions are restricted to explicit HTTPS RPC/indexer/operator endpoints used by the configured mainnet/testnet networks.
 - Custom RPC URLs are allowed only for HTTPS origins, cannot include embedded credentials, are stored in the encrypted vault, and use MV3 optional host permissions per origin instead of broad default access.
+- Custom EVM networks added through `wallet_addEthereumChain` require explicit approval, HTTPS RPC URLs, optional host permission for each RPC origin, and an `eth_chainId` consistency check before the network is persisted.
 - The content script only runs on HTTPS pages. It injects a page-context EIP-1193 provider, but privileged work stays in the background service worker.
 - EVM dApp origins must be approved before account exposure. Message signing, typed-data signing, and transaction broadcasts open separate extension-owned approval windows.
 - Extension CSP only allows self-hosted scripts plus `wasm-unsafe-eval` for WDK/WASM dependencies; remote scripts and extension-page framing are blocked.
@@ -35,5 +36,5 @@ This starter is intended as a browser-extension reference implementation, not a 
 - Add richer transaction simulation, spender risk checks, and persistent per-origin management before production dApp signing rollout.
 - Add hardware-wallet or passkey-backed unlock options if required by product policy.
 - Move the extension icon assets from WXT placeholders to final brand assets before submission.
-- Track the low-severity `elliptic` advisory chain currently pulled through `@tetherto/wdk-wallet-btc -> bitcoinjs-message -> secp256k1 -> elliptic`.
+- Track the low-severity `elliptic` advisory chain currently pulled through `@tetherto/wdk-wallet-btc -> bitcoinjs-message -> secp256k1 -> elliptic` and the dev/build polyfill dependency graph.
 - Re-audit upstream Spark/WASM bundles when WDK packages update; the current visible-browser E2E flow passes under the MV3 CSP.

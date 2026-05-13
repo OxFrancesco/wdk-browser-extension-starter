@@ -6,9 +6,11 @@ import WalletManagerSpark from '@tetherto/wdk-wallet-spark';
 
 import {
   CHAIN_ORDER,
+  EVM_CHAIN_ORDER,
   formatBaseUnits,
   getAsset,
   getChain,
+  getChainList,
   parseBaseUnits,
   withRpcPreferences,
 } from './chains';
@@ -16,6 +18,7 @@ import type {
   AccountSnapshot,
   ChainConfig,
   ChainId,
+  CustomEvmChains,
   EvmChainId,
   NetworkMode,
   PrimitiveRequest,
@@ -526,11 +529,12 @@ function makeWdk(
   seedPhrase: string,
   networkMode: NetworkMode,
   rpcPreferences?: RpcPreferences,
+  customEvmChains?: CustomEvmChains,
 ): WDK {
   const wdk = new WDK(seedPhrase);
 
-  for (const chainId of CHAIN_ORDER) {
-    registerChain(wdk, withRpcPreferences(getChain(chainId, networkMode), rpcPreferences));
+  for (const chain of getChainList(networkMode, customEvmChains)) {
+    registerChain(wdk, withRpcPreferences(chain, rpcPreferences));
   }
 
   return wdk;
@@ -552,9 +556,10 @@ async function withAccount<T>(
   accountIndex: number,
   networkMode: NetworkMode,
   rpcPreferences: RpcPreferences | undefined,
+  customEvmChains: CustomEvmChains | undefined,
   callback: (account: WdkAccount, wdk: WDK) => Promise<T>,
 ): Promise<T> {
-  const wdk = makeWdk(wallet.seedPhrase, networkMode, rpcPreferences);
+  const wdk = makeWdk(wallet.seedPhrase, networkMode, rpcPreferences, customEvmChains);
 
   try {
     const account = (await wdk.getAccount(chainId, accountIndex)) as WdkAccount;
@@ -622,8 +627,9 @@ export async function getDappAccountAddress(
   accountIndex: number,
   networkMode: NetworkMode,
   rpcPreferences?: RpcPreferences,
+  customEvmChains?: CustomEvmChains,
 ): Promise<string> {
-  return withAccount(wallet, chainId, accountIndex, networkMode, rpcPreferences, (account) =>
+  return withAccount(wallet, chainId, accountIndex, networkMode, rpcPreferences, customEvmChains, (account) =>
     account.getAddress(),
   );
 }
@@ -635,8 +641,9 @@ export async function signDappMessage(
   networkMode: NetworkMode,
   message: unknown,
   rpcPreferences?: RpcPreferences,
+  customEvmChains?: CustomEvmChains,
 ): Promise<string> {
-  return withAccount(wallet, chainId, accountIndex, networkMode, rpcPreferences, (account) =>
+  return withAccount(wallet, chainId, accountIndex, networkMode, rpcPreferences, customEvmChains, (account) =>
     requireMethod(account, 'sign').call(account, decodePersonalSignMessage(message)),
   );
 }
@@ -648,9 +655,10 @@ export async function signDappTypedData(
   networkMode: NetworkMode,
   typedData: unknown,
   rpcPreferences?: RpcPreferences,
+  customEvmChains?: CustomEvmChains,
 ): Promise<string> {
   const parsedTypedData = typeof typedData === 'string' ? JSON.parse(typedData) : typedData;
-  return withAccount(wallet, chainId, accountIndex, networkMode, rpcPreferences, (account) =>
+  return withAccount(wallet, chainId, accountIndex, networkMode, rpcPreferences, customEvmChains, (account) =>
     requireMethod(account, 'signTypedData').call(account, parsedTypedData),
   );
 }
@@ -662,9 +670,17 @@ export async function sendDappTransaction(
   networkMode: NetworkMode,
   transaction: Eip1193TransactionRequest,
   rpcPreferences?: RpcPreferences,
+  customEvmChains?: CustomEvmChains,
 ): Promise<string> {
-  const result = await withAccount(wallet, chainId, accountIndex, networkMode, rpcPreferences, (account) =>
-    requireMethod(account, 'sendTransaction').call(account, normalizeEip1193Transaction(transaction)),
+  const result = await withAccount(
+    wallet,
+    chainId,
+    accountIndex,
+    networkMode,
+    rpcPreferences,
+    customEvmChains,
+    (account) =>
+      requireMethod(account, 'sendTransaction').call(account, normalizeEip1193Transaction(transaction)),
   );
 
   if (!result.hash) {
@@ -718,10 +734,11 @@ export async function getAccountSnapshot(
   accountIndex: number,
   networkMode: NetworkMode,
   rpcPreferences?: RpcPreferences,
+  customEvmChains?: CustomEvmChains,
 ): Promise<AccountSnapshot> {
-  const chain = withRpcPreferences(getChain(chainId, networkMode), rpcPreferences);
+  const chain = withRpcPreferences(getChain(chainId, networkMode, customEvmChains), rpcPreferences);
 
-  return withAccount(wallet, chainId, accountIndex, networkMode, rpcPreferences, async (account, wdk) => {
+  return withAccount(wallet, chainId, accountIndex, networkMode, rpcPreferences, customEvmChains, async (account, wdk) => {
     let feeRates: AccountSnapshot['feeRates'];
 
     try {
@@ -768,10 +785,11 @@ export async function quoteSend(
   request: SendRequest,
   networkMode: NetworkMode,
   rpcPreferences?: RpcPreferences,
+  customEvmChains?: CustomEvmChains,
 ): Promise<SendQuote> {
-  const chain = withRpcPreferences(getChain(request.chainId, networkMode), rpcPreferences);
-  const asset = getAsset(request.chainId, request.assetId, networkMode);
-  const recipient = validateRecipientAddress(request.chainId, request.to, networkMode);
+  const chain = withRpcPreferences(getChain(request.chainId, networkMode, customEvmChains), rpcPreferences);
+  const asset = getAsset(request.chainId, request.assetId, networkMode, customEvmChains);
+  const recipient = validateRecipientAddress(request.chainId, request.to, networkMode, customEvmChains);
 
   if (!chain.canSend) {
     return {
@@ -784,7 +802,7 @@ export async function quoteSend(
 
   const amount = parseBaseUnits(request.amount, asset.decimals);
 
-  return withAccount(wallet, request.chainId, request.accountIndex, networkMode, rpcPreferences, async (account) => {
+  return withAccount(wallet, request.chainId, request.accountIndex, networkMode, rpcPreferences, customEvmChains, async (account) => {
     const tx =
       chain.family === 'evm'
         ? { to: recipient, value: amount }
@@ -832,17 +850,18 @@ export async function broadcastSend(
   request: SendRequest,
   networkMode: NetworkMode,
   rpcPreferences?: RpcPreferences,
+  customEvmChains?: CustomEvmChains,
 ): Promise<{ hash?: string; fee?: string }> {
-  const chain = withRpcPreferences(getChain(request.chainId, networkMode), rpcPreferences);
-  const asset = getAsset(request.chainId, request.assetId, networkMode);
+  const chain = withRpcPreferences(getChain(request.chainId, networkMode, customEvmChains), rpcPreferences);
+  const asset = getAsset(request.chainId, request.assetId, networkMode, customEvmChains);
   const amount = parseBaseUnits(request.amount, asset.decimals);
-  const recipient = validateRecipientAddress(request.chainId, request.to, networkMode);
+  const recipient = validateRecipientAddress(request.chainId, request.to, networkMode, customEvmChains);
 
   if (!chain.canSend) {
     throw new Error(chain.statusNote ?? `${chain.networkLabel} does not have live broadcast configuration.`);
   }
 
-  return withAccount(wallet, request.chainId, request.accountIndex, networkMode, rpcPreferences, async (account) => {
+  return withAccount(wallet, request.chainId, request.accountIndex, networkMode, rpcPreferences, customEvmChains, async (account) => {
     const result =
       asset.kind === 'token'
         ? await account.transfer?.({
@@ -958,9 +977,29 @@ function requireMethod<K extends keyof WdkAccount>(
   return value as NonNullable<WdkAccount[K]>;
 }
 
-export function getPrimitiveDefinitions(chainId?: ChainId): WdkPrimitiveDefinition[] {
+function primitiveSupportsChain(
+  primitive: WdkPrimitiveDefinition,
+  chainId: ChainId,
+  networkMode: NetworkMode,
+  customEvmChains?: CustomEvmChains,
+): boolean {
+  if (primitive.chains.includes(chainId)) return true;
+
+  const chain = getChain(chainId, networkMode, customEvmChains);
+  return chain.family === 'evm' && primitive.chains.some((candidate) =>
+    EVM_CHAIN_ORDER.includes(candidate as never),
+  );
+}
+
+export function getPrimitiveDefinitions(
+  chainId?: ChainId,
+  networkMode: NetworkMode = 'mainnet',
+  customEvmChains?: CustomEvmChains,
+): WdkPrimitiveDefinition[] {
   if (!chainId) return WDK_PRIMITIVES;
-  return WDK_PRIMITIVES.filter((primitive) => primitive.chains.includes(chainId));
+  return WDK_PRIMITIVES.filter((primitive) =>
+    primitiveSupportsChain(primitive, chainId, networkMode, customEvmChains),
+  );
 }
 
 export async function executePrimitive(
@@ -968,11 +1007,12 @@ export async function executePrimitive(
   request: PrimitiveRequest,
   networkMode: NetworkMode,
   rpcPreferences?: RpcPreferences,
+  customEvmChains?: CustomEvmChains,
 ): Promise<PrimitiveResult> {
   const primitive = WDK_PRIMITIVES.find((candidate) => candidate.id === request.operationId);
   if (!primitive) throw new Error('Unsupported WDK primitive.');
-  if (!primitive.chains.includes(request.chainId)) {
-    throw new Error(`${primitive.label} is not available for ${getChain(request.chainId, networkMode).label}.`);
+  if (!primitiveSupportsChain(primitive, request.chainId, networkMode, customEvmChains)) {
+    throw new Error(`${primitive.label} is not available for ${getChain(request.chainId, networkMode, customEvmChains).label}.`);
   }
 
   const payload = parsePrimitivePayload(request.payload);
@@ -982,6 +1022,7 @@ export async function executePrimitive(
     request.accountIndex,
     networkMode,
     rpcPreferences,
+    customEvmChains,
     async (account, wdk) => {
       switch (request.operationId) {
         case 'core:generateSeedPhrase': {

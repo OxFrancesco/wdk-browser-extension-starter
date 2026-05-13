@@ -2,14 +2,21 @@ import { useEffect, useMemo, useState } from 'react';
 import * as QRCode from 'qrcode';
 import {
   Activity,
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Coins,
   Copy,
   KeyRound,
   Lock,
   Plus,
+  QrCode,
   RefreshCcw,
+  ScanLine,
   Send,
   Settings,
   Shield,
+  Terminal,
   Trash2,
   Wallet,
 } from 'lucide-react';
@@ -17,15 +24,6 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/src/components/ui/alert';
 import { Badge } from '@/src/components/ui/badge';
 import { Button } from '@/src/components/ui/button';
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/src/components/ui/card';
 import { Input } from '@/src/components/ui/input';
 import { Label } from '@/src/components/ui/label';
 import {
@@ -37,6 +35,7 @@ import {
   SelectValue,
 } from '@/src/components/ui/select';
 import { Separator } from '@/src/components/ui/separator';
+import { Switch } from '@/src/components/ui/switch';
 import {
   Sheet,
   SheetClose,
@@ -51,11 +50,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/src/components/ui/ta
 import { Textarea } from '@/src/components/ui/textarea';
 import { TooltipProvider } from '@/src/components/ui/tooltip';
 import {
-  CHAIN_ORDER,
+  EVM_CHAIN_ORDER,
   getBuiltinRpcUrls,
   getChain,
-  getChains,
+  getChainList,
   getCustomRpcUrls,
+  isCustomEvmChainId,
   normalizeRpcUrl,
   rpcPermissionPattern,
   supportsCustomRpc,
@@ -79,6 +79,7 @@ const emptyDashboard: DashboardState = {
   hasVault: false,
   activeWalletId: null,
   networkMode: 'mainnet',
+  customEvmChains: {},
   rpcPreferences: {},
   dappPermissions: {},
   sessionExpiresAt: null,
@@ -124,30 +125,46 @@ function App() {
   const [primitivePayload, setPrimitivePayload] = useState('');
   const [primitiveResult, setPrimitiveResult] = useState('');
   const [txFilter, setTxFilter] = useState('all');
+  const [createStep, setCreateStep] = useState<'seed' | 'password'>('seed');
+  const [seedCopied, setSeedCopied] = useState(false);
+  const [seedMode, setSeedMode] = useState<'choose' | 'create' | 'recover'>('choose');
 
   const activeWallet = dashboard.wallets.find((wallet) => wallet.id === dashboard.activeWalletId);
-  const chains = getChains(dashboard.networkMode);
-  const chain = getChain(selectedChain, dashboard.networkMode);
+  const chainOptions = useMemo(
+    () => getChainList(dashboard.networkMode, dashboard.customEvmChains),
+    [dashboard.customEvmChains, dashboard.networkMode],
+  );
+  const activeChainId = chainOptions.some((option) => option.id === selectedChain)
+    ? selectedChain
+    : 'ethereum';
+  const chain = getChain(activeChainId, dashboard.networkMode, dashboard.customEvmChains);
+  const isCustomChain = isCustomEvmChainId(activeChainId);
   const selectedAsset = chain.assets.find((asset) => asset.id === sendForm.assetId) ?? chain.assets[0];
   const customRpcSupported = supportsCustomRpc(chain);
-  const builtinRpcUrls = getBuiltinRpcUrls(selectedChain, dashboard.networkMode);
+  const builtinRpcUrls = getBuiltinRpcUrls(activeChainId, dashboard.networkMode, dashboard.customEvmChains);
   const customRpcUrls = getCustomRpcUrls(
     dashboard.rpcPreferences,
-    selectedChain,
+    activeChainId,
     dashboard.networkMode,
+    dashboard.customEvmChains,
   );
 
   const selectedSnapshot = useMemo<AccountSnapshot | undefined>(
     () =>
       dashboard.accounts.find(
-        (account) => account.chainId === selectedChain && account.accountIndex === selectedAccount,
+        (account) => account.chainId === activeChainId && account.accountIndex === selectedAccount,
       ),
-    [dashboard.accounts, selectedAccount, selectedChain],
+    [activeChainId, dashboard.accounts, selectedAccount],
   );
 
   const visiblePrimitives = useMemo(
-    () => dashboard.primitives.filter((primitive) => primitive.chains.includes(selectedChain)),
-    [dashboard.primitives, selectedChain],
+    () => dashboard.primitives.filter((primitive) =>
+      primitive.chains.includes(activeChainId) ||
+      (chain.family === 'evm' && primitive.chains.some((primitiveChainId) =>
+        EVM_CHAIN_ORDER.includes(primitiveChainId as never),
+      )),
+    ),
+    [activeChainId, chain.family, dashboard.primitives],
   );
 
   const selectedPrimitive = visiblePrimitives.find((primitive) => primitive.id === primitiveId);
@@ -195,10 +212,15 @@ function App() {
   }, [selectedSnapshot?.address]);
 
   useEffect(() => {
-    const nextAsset = getChain(selectedChain, dashboard.networkMode).assets[0];
+    if (activeChainId !== selectedChain) {
+      setSelectedChain(activeChainId);
+      return;
+    }
+
+    const nextAsset = getChain(activeChainId, dashboard.networkMode, dashboard.customEvmChains).assets[0];
     setSendForm((current) => ({ ...current, assetId: nextAsset.id }));
     setQuote(null);
-  }, [dashboard.networkMode, selectedChain]);
+  }, [activeChainId, dashboard.customEvmChains, dashboard.networkMode, selectedChain]);
 
   useEffect(() => {
     if (activeWallet && selectedAccount >= activeWallet.accountCount) {
@@ -298,7 +320,7 @@ function App() {
       await requestRpcHostPermission(url);
       const response = await sendRuntimeMessage({
         type: 'rpc:add',
-        chainId: selectedChain,
+        chainId: activeChainId,
         networkMode: dashboard.networkMode,
         url,
       });
@@ -314,7 +336,7 @@ function App() {
     await run(async () => {
       const response = await sendRuntimeMessage({
         type: 'rpc:remove',
-        chainId: selectedChain,
+        chainId: activeChainId,
         networkMode: dashboard.networkMode,
         url,
       });
@@ -323,6 +345,23 @@ function App() {
       setQuote(null);
       setPrimitiveResult('');
     }, 'RPC removed');
+  }
+
+  async function removeCustomChain() {
+    if (!isCustomEvmChainId(activeChainId)) return;
+
+    await run(async () => {
+      const response = await sendRuntimeMessage({
+        type: 'chain:removeCustom',
+        chainId: activeChainId,
+        networkMode: dashboard.networkMode,
+      });
+      if (!response.ok) throw new Error(response.error);
+      setDashboard(response.data);
+      setSelectedChain('ethereum');
+      setQuote(null);
+      setPrimitiveResult('');
+    }, 'Network removed');
   }
 
   async function addAccount() {
@@ -343,7 +382,7 @@ function App() {
     const request: SendRequest = {
       walletId: activeWallet.id,
       accountIndex: selectedAccount,
-      chainId: selectedChain,
+      chainId: activeChainId,
       assetId: selectedAsset.id,
       to: sendForm.to,
       amount: sendForm.amount,
@@ -364,7 +403,7 @@ function App() {
     const request: SendRequest = {
       walletId: activeWallet.id,
       accountIndex: selectedAccount,
-      chainId: selectedChain,
+      chainId: activeChainId,
       assetId: selectedAsset.id,
       to: sendForm.to,
       amount: sendForm.amount,
@@ -391,7 +430,7 @@ function App() {
     const request: PrimitiveRequest = {
       walletId: activeWallet.id,
       accountIndex: selectedAccount,
-      chainId: selectedChain,
+      chainId: activeChainId,
       operationId: primitiveId,
       payload: primitivePayload,
     };
@@ -407,6 +446,13 @@ function App() {
     if (!selectedSnapshot?.address) return;
     await navigator.clipboard.writeText(selectedSnapshot.address);
     setToast({ tone: 'success', message: 'Address copied' });
+  }
+
+  async function copySeed() {
+    if (!seedPhrase) return;
+    await navigator.clipboard.writeText(seedPhrase);
+    setSeedCopied(true);
+    setToast({ tone: 'success', message: 'Seed phrase copied' });
   }
 
   async function readRecipientQr(file: File | null) {
@@ -432,52 +478,159 @@ function App() {
   if (dashboard.locked) {
     return (
       <TooltipProvider>
-        <main className="popup-shell wallet-scroll p-4">
-          <section className="mb-4 flex items-center gap-3">
+        <main className="popup-shell wallet-scroll p-6">
+          <section className="mb-6 flex items-center gap-4">
             <div className="brand-orb">
               <Wallet />
             </div>
             <div>
               <h1 className="text-lg font-semibold">WDK Wallet</h1>
-              <p className="text-sm text-muted-foreground">Chrome and Brave starter</p>
             </div>
           </section>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>{dashboard.hasVault ? 'Unlock vault' : 'Create vault'}</CardTitle>
-              <CardDescription>
-                Non-custodial WDK accounts stay encrypted in extension storage.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              {!dashboard.hasVault && (
+          {dashboard.hasVault ? (
+            <section className="flex flex-col gap-5">
+              <div>
+                <h2 className="text-base font-semibold">Unlock your vault</h2>
+              </div>
+              <div>
+                <Input
+                  id="vault-password"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  aria-label="Password"
+                  placeholder="Your password"
+                />
+              </div>
+              <Button className="w-full" onClick={unlockVault} disabled={busy}>
+                <Lock data-icon="inline-start" />
+                Unlock
+              </Button>
+            </section>
+          ) : createStep === 'seed' ? (
+            <section className="flex flex-col gap-5">
+              <div>
+                <h2 className="text-base font-semibold">
+                  {seedMode === 'recover' ? 'Step 1 — Recover wallet' : 'Step 1 — Create your wallet'}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {seedMode === 'recover'
+                    ? 'Paste your existing BIP-39 seed phrase to restore your wallet.'
+                    : seedMode === 'create'
+                      ? 'Save your seed phrase somewhere safe. You will need it to recover your wallet.'
+                      : 'Create a new wallet or recover an existing one from a seed phrase.'}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="wallet-name">Wallet name</Label>
+                <Input
+                  id="wallet-name"
+                  value={walletName}
+                  onChange={(event) => setWalletName(event.target.value)}
+                />
+              </div>
+
+              {seedMode === 'choose' ? (
+                <div className="flex flex-col gap-2">
+                  <Button
+                    className="w-full"
+                    onClick={async () => {
+                      setSeedCopied(false);
+                      await generateSeed(setSeedPhrase);
+                      setSeedMode('create');
+                    }}
+                    disabled={busy}
+                  >
+                    <KeyRound data-icon="inline-start" />
+                    Create wallet
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      setSeedPhrase('');
+                      setSeedCopied(false);
+                      setSeedMode('recover');
+                    }}
+                    disabled={busy}
+                  >
+                    Recover wallet
+                  </Button>
+                </div>
+              ) : (
                 <>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="wallet-name">Wallet name</Label>
-                    <Input
-                      id="wallet-name"
-                      value={walletName}
-                      onChange={(event) => setWalletName(event.target.value)}
-                    />
-                  </div>
                   <div className="flex flex-col gap-2">
                     <Label htmlFor="seed-phrase">Seed phrase</Label>
                     <Textarea
                       id="seed-phrase"
                       value={seedPhrase}
-                      onChange={(event) => setSeedPhrase(event.target.value)}
+                      readOnly={seedMode === 'create'}
+                      onChange={(event) => {
+                        setSeedPhrase(event.target.value);
+                        setSeedCopied(false);
+                      }}
                       rows={4}
-                      placeholder="Generate a seed or paste an existing BIP-39 phrase"
+                      placeholder={
+                        seedMode === 'recover' ? 'Paste your BIP-39 seed phrase' : ''
+                      }
                     />
                   </div>
-                  <Button variant="secondary" onClick={() => generateSeed(setSeedPhrase)} disabled={busy}>
-                    <KeyRound data-icon="inline-start" />
-                    Generate seed
-                  </Button>
+
+                  {seedMode === 'create' && (
+                    <>
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={copySeed}
+                        disabled={!seedPhrase || busy}
+                      >
+                        <Copy data-icon="inline-start" />
+                        {seedCopied ? 'Copied' : 'Copy seed phrase'}
+                      </Button>
+                      <Alert variant="destructive">
+                        <AlertTriangle />
+                        <AlertTitle>Save your seed phrase now</AlertTitle>
+                        <AlertDescription>
+                          If you don't copy it now, you will not be able to recover your wallet.
+                        </AlertDescription>
+                      </Alert>
+                    </>
+                  )}
+
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setSeedMode('choose');
+                        setSeedPhrase('');
+                        setSeedCopied(false);
+                      }}
+                      disabled={busy}
+                    >
+                      <ArrowLeft data-icon="inline-start" />
+                      Back
+                    </Button>
+                    <Button
+                      className="flex-1"
+                      onClick={() => setCreateStep('password')}
+                      disabled={!seedPhrase || busy}
+                    >
+                      Continue
+                      <ArrowRight data-icon="inline-end" />
+                    </Button>
+                  </div>
                 </>
               )}
-
+            </section>
+          ) : (
+            <section className="flex flex-col gap-5">
+              <div>
+                <h2 className="text-base font-semibold">Step 2 — Set a password</h2>
+                <p className="text-sm text-muted-foreground">
+                  Encrypts your seed phrase locally in extension storage.
+                </p>
+              </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="vault-password">Password</Label>
                 <Input
@@ -488,22 +641,27 @@ function App() {
                   placeholder="At least 12 characters"
                 />
               </div>
-            </CardContent>
-            <CardFooter>
-              <Button className="w-full" onClick={dashboard.hasVault ? unlockVault : createVault} disabled={busy}>
-                <Lock data-icon="inline-start" />
-                {dashboard.hasVault ? 'Unlock' : 'Create encrypted vault'}
-              </Button>
-            </CardFooter>
-          </Card>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setCreateStep('seed')}
+                  disabled={busy}
+                >
+                  <ArrowLeft data-icon="inline-start" />
+                  Back
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={createVault}
+                  disabled={busy || password.length < 12}
+                >
+                  <Lock data-icon="inline-start" />
+                  Create vault
+                </Button>
+              </div>
+            </section>
+          )}
 
-          <Alert className="mt-3">
-            <Shield />
-            <AlertTitle>Encrypted vault</AlertTitle>
-            <AlertDescription>
-              Seed phrases are protected with 600k PBKDF2-SHA256 iterations and AES-GCM.
-            </AlertDescription>
-          </Alert>
           {toast && <p className={`toast ${toast.tone}`}>{toast.message}</p>}
         </main>
       </TooltipProvider>
@@ -513,20 +671,15 @@ function App() {
   return (
     <TooltipProvider>
       <main className="popup-shell wallet-scroll">
-        <section className="p-4 pb-2">
-          <div className="mb-4 flex items-center justify-between gap-3">
+        <section className="px-6 pt-6 pb-3">
+          <div className="mb-6 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="account-orb">
                 <Wallet />
               </div>
-              <div>
-                <h1 className="text-base font-semibold">{activeWallet?.name ?? 'WDK Wallet'}</h1>
-                <p className="text-xs text-muted-foreground">
-                  Account {selectedAccount + 1} on {chain.networkLabel}
-                </p>
-              </div>
+              <h1 className="text-base font-semibold">{activeWallet?.name ?? 'WDK Wallet'}</h1>
             </div>
-            <div className="flex gap-1">
+            <div className="flex gap-2">
               <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
                 <SheetTrigger asChild>
                   <Button variant="outline" size="icon-sm" title="Network RPCs">
@@ -556,15 +709,15 @@ function App() {
                         </SelectContent>
                       </Select>
 
-                      <Select value={selectedChain} onValueChange={(value) => setSelectedChain(value as ChainId)}>
+                      <Select value={activeChainId} onValueChange={(value) => setSelectedChain(value as ChainId)}>
                         <SelectTrigger className="w-full">
                           <SelectValue placeholder="Chain" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
-                            {CHAIN_ORDER.map((chainId) => (
-                              <SelectItem key={chainId} value={chainId}>
-                                {chains[chainId].label}
+                            {chainOptions.map((chainOption) => (
+                              <SelectItem key={chainOption.id} value={chainOption.id}>
+                                {chainOption.label}
                               </SelectItem>
                             ))}
                           </SelectGroup>
@@ -625,7 +778,7 @@ function App() {
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      <Label>Built-in URLs</Label>
+                      <Label>{isCustomChain ? 'Default URLs' : 'Built-in URLs'}</Label>
                       {builtinRpcUrls.length ? (
                         <div className="flex flex-col gap-2">
                           {builtinRpcUrls.map((url) => (
@@ -638,6 +791,18 @@ function App() {
                         <p className="text-xs text-muted-foreground">No configurable RPC URLs.</p>
                       )}
                     </div>
+
+                    {isCustomChain && (
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        onClick={removeCustomChain}
+                        disabled={busy}
+                      >
+                        <Trash2 data-icon="inline-start" />
+                        Remove network
+                      </Button>
+                    )}
                   </div>
                 </SheetContent>
               </Sheet>
@@ -661,28 +826,27 @@ function App() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <Select value={dashboard.networkMode} onValueChange={(value) => switchNetwork(value as NetworkMode)}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Network" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="mainnet">Mainnet</SelectItem>
-                  <SelectItem value="testnet">Testnet</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="network-mode"
+                checked={dashboard.networkMode === 'testnet'}
+                onCheckedChange={(checked) => switchNetwork(checked ? 'testnet' : 'mainnet')}
+              />
+              <Label htmlFor="network-mode" className="text-sm font-medium">
+                {dashboard.networkMode === 'testnet' ? 'Testnet' : 'Mainnet'}
+              </Label>
+            </div>
 
-            <Select value={selectedChain} onValueChange={(value) => setSelectedChain(value as ChainId)}>
-              <SelectTrigger className="w-full">
+            <Select value={activeChainId} onValueChange={(value) => setSelectedChain(value as ChainId)}>
+              <SelectTrigger className="ml-auto w-[160px]">
                 <SelectValue placeholder="Chain" />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {CHAIN_ORDER.map((chainId) => (
-                    <SelectItem key={chainId} value={chainId}>
-                      {chains[chainId].label}
+                  {chainOptions.map((chainOption) => (
+                    <SelectItem key={chainOption.id} value={chainOption.id}>
+                      {chainOption.label}
                     </SelectItem>
                   ))}
                 </SelectGroup>
@@ -691,122 +855,135 @@ function App() {
           </div>
         </section>
 
-        <section className="px-4 pb-3">
-          <Card className="gap-4 py-4">
-            <CardHeader className="px-4">
-              <CardTitle className="flex items-center justify-between gap-2 text-sm">
-                <span>{selectedSnapshot?.walletName ?? activeWallet?.name}</span>
-                <Badge variant={dashboard.networkMode === 'mainnet' ? 'default' : 'secondary'}>
-                  {dashboard.networkMode}
-                </Badge>
-              </CardTitle>
-              <CardDescription className="address-text">
-                {selectedSnapshot?.address ?? 'Address unavailable'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex items-center gap-2 px-4">
-              <Select
-                value={dashboard.activeWalletId ?? ''}
-                onValueChange={switchWallet}
-              >
-                <SelectTrigger className="min-w-0 flex-1">
-                  <SelectValue placeholder="Wallet" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {dashboard.wallets.map((wallet) => (
-                      <SelectItem key={wallet.id} value={wallet.id}>
-                        {wallet.name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
+        <section className="flex flex-col gap-4 px-6 pb-4">
+          <div className="flex items-center gap-2">
+            <Select
+              value={dashboard.activeWalletId ?? ''}
+              onValueChange={switchWallet}
+            >
+              <SelectTrigger className="min-w-0 flex-1">
+                <SelectValue placeholder="Wallet" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {dashboard.wallets.map((wallet) => (
+                    <SelectItem key={wallet.id} value={wallet.id}>
+                      {wallet.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
 
-              <Select
-                value={String(selectedAccount)}
-                onValueChange={(value) => setSelectedAccount(Number(value))}
-              >
-                <SelectTrigger className="w-[118px]">
-                  <SelectValue placeholder="Account" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {Array.from({ length: activeWallet?.accountCount ?? 1 }, (_, index) => (
-                      <SelectItem key={index} value={String(index)}>
-                        Account {index + 1}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </CardContent>
-            <CardFooter className="gap-2 px-4">
-              <Button variant="secondary" className="flex-1" onClick={copyAddress}>
-                <Copy data-icon="inline-start" />
-                Copy
-              </Button>
-              <Button variant="outline" className="flex-1" onClick={addAccount}>
-                <Plus data-icon="inline-start" />
-                Add account
-              </Button>
-              <Sheet open={addWalletOpen} onOpenChange={setAddWalletOpen}>
-                <SheetTrigger asChild>
-                  <Button variant="outline" size="icon" title="Add wallet">
-                    <Plus />
-                  </Button>
-                </SheetTrigger>
-                <SheetContent className="w-[360px]" side="right">
-                  <SheetHeader>
-                    <SheetTitle>Add wallet</SheetTitle>
-                    <SheetDescription>Import a seed phrase into a separate encrypted wallet profile.</SheetDescription>
-                  </SheetHeader>
-                  <div className="flex flex-col gap-3 px-4">
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="new-wallet-name">Wallet name</Label>
-                      <Input
-                        id="new-wallet-name"
-                        value={newWalletName}
-                        onChange={(event) => setNewWalletName(event.target.value)}
-                        placeholder="Wallet name"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="new-wallet-seed">Seed phrase</Label>
-                      <Textarea
-                        id="new-wallet-seed"
-                        value={newWalletSeed}
-                        onChange={(event) => setNewWalletSeed(event.target.value)}
-                        rows={4}
-                        placeholder="Generate a seed or paste an existing BIP-39 phrase"
-                      />
-                    </div>
-                    <Button variant="secondary" onClick={() => generateSeed(setNewWalletSeed)} disabled={busy}>
-                      Generate
-                    </Button>
+            <Select
+              value={String(selectedAccount)}
+              onValueChange={(value) => setSelectedAccount(Number(value))}
+            >
+              <SelectTrigger className="w-[118px]">
+                <SelectValue placeholder="Account" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {Array.from({ length: activeWallet?.accountCount ?? 1 }, (_, index) => (
+                    <SelectItem key={index} value={String(index)}>
+                      Account {index + 1}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <button
+            type="button"
+            onClick={copyAddress}
+            disabled={!selectedSnapshot?.address}
+            className="group flex items-center gap-2 rounded-md border border-input bg-input/30 px-3 py-2 text-left transition-colors hover:bg-input/50 disabled:cursor-not-allowed disabled:opacity-60"
+            title="Copy address"
+          >
+            <span className="address-text min-w-0 flex-1 truncate text-xs text-muted-foreground">
+              {selectedSnapshot?.address ?? 'Address unavailable'}
+            </span>
+            <Copy className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+          </button>
+
+          <div className="flex items-center gap-2">
+            <Button variant="outline" className="flex-1" onClick={addAccount}>
+              <Plus data-icon="inline-start" />
+              Add account
+            </Button>
+            <Sheet open={addWalletOpen} onOpenChange={setAddWalletOpen}>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="icon" title="Add wallet">
+                  <Plus />
+                </Button>
+              </SheetTrigger>
+              <SheetContent className="w-[360px]" side="right">
+                <SheetHeader>
+                  <SheetTitle>Add wallet</SheetTitle>
+                  <SheetDescription>Import a seed phrase into a separate encrypted wallet profile.</SheetDescription>
+                </SheetHeader>
+                <div className="flex flex-col gap-3 px-4">
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="new-wallet-name">Wallet name</Label>
+                    <Input
+                      id="new-wallet-name"
+                      value={newWalletName}
+                      onChange={(event) => setNewWalletName(event.target.value)}
+                      placeholder="Wallet name"
+                    />
                   </div>
-                  <SheetFooter>
-                    <Button onClick={addWallet} disabled={busy}>Add wallet</Button>
-                    <SheetClose asChild>
-                      <Button variant="outline">Cancel</Button>
-                    </SheetClose>
-                  </SheetFooter>
-                </SheetContent>
-              </Sheet>
-            </CardFooter>
-          </Card>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="new-wallet-seed">Seed phrase</Label>
+                    <Textarea
+                      id="new-wallet-seed"
+                      value={newWalletSeed}
+                      onChange={(event) => setNewWalletSeed(event.target.value)}
+                      rows={4}
+                      placeholder="Generate a seed or paste an existing BIP-39 phrase"
+                    />
+                  </div>
+                  <Button variant="secondary" onClick={() => generateSeed(setNewWalletSeed)} disabled={busy}>
+                    Generate
+                  </Button>
+                </div>
+                <SheetFooter>
+                  <Button onClick={addWallet} disabled={busy}>Add wallet</Button>
+                  <SheetClose asChild>
+                    <Button variant="outline">Cancel</Button>
+                  </SheetClose>
+                </SheetFooter>
+              </SheetContent>
+            </Sheet>
+          </div>
+          <Separator />
         </section>
 
-        <Tabs defaultValue="assets" className="px-4 pb-4">
-          <TabsList className="grid w-full grid-cols-5">
-            <TabsTrigger value="assets">Assets</TabsTrigger>
-            <TabsTrigger value="send">Send</TabsTrigger>
-            <TabsTrigger value="receive">Receive</TabsTrigger>
-            <TabsTrigger value="activity">Activity</TabsTrigger>
-            <TabsTrigger value="wdk">WDK</TabsTrigger>
+        <Tabs defaultValue="assets" className="gap-4 px-6 pb-6">
+          <TabsList className="grid h-auto w-full grid-cols-5 p-1">
+            <TabsTrigger value="assets" className="flex-col gap-1 px-1 py-2 text-[11px]">
+              <Coins />
+              Assets
+            </TabsTrigger>
+            <TabsTrigger value="send" className="flex-col gap-1 px-1 py-2 text-[11px]">
+              <Send />
+              Send
+            </TabsTrigger>
+            <TabsTrigger value="receive" className="flex-col gap-1 px-1 py-2 text-[11px]">
+              <QrCode />
+              Receive
+            </TabsTrigger>
+            <TabsTrigger value="activity" className="flex-col gap-1 px-1 py-2 text-[11px]">
+              <Activity />
+              Activity
+            </TabsTrigger>
+            <TabsTrigger value="wdk" className="flex-col gap-1 px-1 py-2 text-[11px]">
+              <Terminal />
+              WDK
+            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="assets" className="mt-3 flex flex-col gap-3">
+          <TabsContent value="assets" className="mt-4 flex flex-col gap-4">
             {chain.statusNote && (
               <Alert>
                 <Shield />
@@ -815,26 +992,17 @@ function App() {
               </Alert>
             )}
             {selectedSnapshot?.balances.map((balance) => (
-              <Card key={balance.assetId} className="gap-3 py-4">
-                <CardHeader className="px-4">
-                  <CardTitle className="flex items-center justify-between text-sm">
-                    <span>{balance.label}</span>
-                    <span>{balance.formatted}</span>
-                  </CardTitle>
-                  {balance.error && <CardDescription>{balance.error}</CardDescription>}
-                </CardHeader>
-              </Card>
+              <div key={balance.assetId} className="flex flex-col gap-1">
+                <div className="flex items-center justify-between text-sm font-medium">
+                  <span>{balance.label}</span>
+                  <span>{balance.formatted}</span>
+                </div>
+                {balance.error && (
+                  <p className="text-xs text-muted-foreground">{balance.error}</p>
+                )}
+                <Separator />
+              </div>
             ))}
-            {selectedSnapshot?.feeRates && (
-              <Card className="gap-3 py-4">
-                <CardHeader className="px-4">
-                  <CardTitle className="text-sm">Fee rates</CardTitle>
-                  <CardDescription>
-                    Normal {selectedSnapshot.feeRates.normal} / Fast {selectedSnapshot.feeRates.fast}
-                  </CardDescription>
-                </CardHeader>
-              </Card>
-            )}
             {selectedSnapshot?.error && (
               <Alert variant="destructive">
                 <AlertTitle>Account unavailable</AlertTitle>
@@ -843,211 +1011,221 @@ function App() {
             )}
           </TabsContent>
 
-          <TabsContent value="send" className="mt-3">
-            <Card>
-              <CardHeader>
-                <CardTitle>Send</CardTitle>
-                <CardDescription>Address validation follows the selected chain and network mode.</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                <div className="flex flex-col gap-2">
-                  <Label>Asset</Label>
-                  <Select
-                    value={sendForm.assetId}
-                    onValueChange={(value) => setSendForm((current) => ({ ...current, assetId: value }))}
+          <TabsContent value="send" className="mt-4 flex flex-col gap-4">
+            <div>
+              <h2 className="text-base font-semibold">Send</h2>
+              <p className="text-sm text-muted-foreground">Address validation follows the selected chain and network mode.</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>Asset</Label>
+              <Select
+                value={sendForm.assetId}
+                onValueChange={(value) => setSendForm((current) => ({ ...current, assetId: value }))}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Asset" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {chain.assets.map((asset) => (
+                      <SelectItem key={asset.id} value={asset.id}>
+                        {asset.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="recipient-address">Recipient address</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="recipient-address"
+                  value={sendForm.to}
+                  onChange={(event) => setSendForm((current) => ({ ...current, to: event.target.value }))}
+                  placeholder="Recipient address"
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  title="Scan recipient QR image"
+                  onClick={() => document.getElementById('qr-picker')?.click()}
+                >
+                  <ScanLine />
+                </Button>
+                <input
+                  id="qr-picker"
+                  type="file"
+                  accept="image/*"
+                  aria-label="Scan recipient QR image"
+                  className="hidden"
+                  onChange={(event) => readRecipientQr(event.target.files?.[0] ?? null)}
+                />
+              </div>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="send-amount">Amount</Label>
+              <Input
+                id="send-amount"
+                value={sendForm.amount}
+                onChange={(event) => setSendForm((current) => ({ ...current, amount: event.target.value }))}
+                placeholder="Amount"
+              />
+            </div>
+            {quote && (
+              <Alert>
+                <AlertTitle>Quote</AlertTitle>
+                <AlertDescription>{quote}</AlertDescription>
+              </Alert>
+            )}
+            <div className="flex gap-2">
+              <Button variant="secondary" className="flex-1" onClick={quoteSend} disabled={busy}>
+                Quote
+              </Button>
+              <Button className="flex-1" onClick={broadcastSend} disabled={busy}>
+                <Send data-icon="inline-start" />
+                Send
+              </Button>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="receive" className="mt-4 flex flex-col gap-4">
+            <div>
+              <h2 className="text-base font-semibold">Receive</h2>
+              <p className="text-sm text-muted-foreground">{chain.networkLabel}</p>
+            </div>
+            <div className="flex flex-col items-center gap-4 rounded-lg border bg-input/30 p-5">
+              {receiveQr ? (
+                <div className="rounded-md bg-white p-3">
+                  <img className="qr" src={receiveQr} alt="Receive address QR code" />
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No address</p>
+              )}
+              <p className="address-text text-center text-xs text-muted-foreground">
+                {selectedSnapshot?.address ?? 'Address unavailable'}
+              </p>
+            </div>
+            <Button className="w-full" variant="secondary" onClick={copyAddress}>
+              <Copy data-icon="inline-start" />
+              Copy address
+            </Button>
+          </TabsContent>
+
+          <TabsContent value="activity" className="mt-4 flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-base font-semibold">Activity</h2>
+                <p className="text-sm text-muted-foreground">Refreshed by the background worker.</p>
+              </div>
+              <Select value={txFilter} onValueChange={setTxFilter}>
+                <SelectTrigger size="sm" className="w-[120px]">
+                  <SelectValue placeholder="Filter" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="submitted">Submitted</SelectItem>
+                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="failed">Failed</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+            {filteredTransactions.length === 0 ? (
+              <p className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
+                No transactions yet
+              </p>
+            ) : (
+              <div className="flex flex-col">
+                {filteredTransactions.slice(0, 8).map((tx, index, list) => (
+                  <article
+                    key={tx.id}
+                    className={`flex flex-col gap-1.5 py-3 ${index < list.length - 1 ? 'border-b' : ''}`}
                   >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Asset" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {chain.assets.map((asset) => (
-                          <SelectItem key={asset.id} value={asset.id}>
-                            {asset.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="recipient-address">Recipient address</Label>
-                  <Input
-                    id="recipient-address"
-                    value={sendForm.to}
-                    onChange={(event) => setSendForm((current) => ({ ...current, to: event.target.value }))}
-                    placeholder="Recipient address"
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="qr-picker">Scan recipient QR image</Label>
-                  <Input
-                    id="qr-picker"
-                    type="file"
-                    accept="image/*"
-                    aria-label="Scan recipient QR image"
-                    onChange={(event) => readRecipientQr(event.target.files?.[0] ?? null)}
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="send-amount">Amount</Label>
-                  <Input
-                    id="send-amount"
-                    value={sendForm.amount}
-                    onChange={(event) => setSendForm((current) => ({ ...current, amount: event.target.value }))}
-                    placeholder="Amount"
-                  />
-                </div>
-                {quote && (
-                  <Alert>
-                    <AlertTitle>Quote</AlertTitle>
-                    <AlertDescription>{quote}</AlertDescription>
-                  </Alert>
-                )}
-              </CardContent>
-              <CardFooter className="gap-2">
-                <Button variant="secondary" className="flex-1" onClick={quoteSend} disabled={busy}>
-                  Quote
-                </Button>
-                <Button className="flex-1" onClick={broadcastSend} disabled={busy}>
-                  <Send data-icon="inline-start" />
-                  Send
-                </Button>
-              </CardFooter>
-            </Card>
+                    <div className="flex items-center justify-between gap-2">
+                      <strong className="text-sm">
+                      {tx.assetId} on {getChain(tx.chainId, tx.networkMode, dashboard.customEvmChains).label}
+                      </strong>
+                      <Badge variant={tx.status === 'failed' ? 'destructive' : 'secondary'}>
+                        {tx.status}
+                      </Badge>
+                    </div>
+                    <p className="tx-hash truncate text-xs text-muted-foreground">
+                      {tx.error ?? tx.hash ?? tx.to}
+                    </p>
+                    <p className="text-xs text-muted-foreground/70">{formatDate(tx.createdAt)}</p>
+                  </article>
+                ))}
+              </div>
+            )}
           </TabsContent>
 
-          <TabsContent value="receive" className="mt-3">
-            <Card>
-              <CardHeader>
-                <CardTitle>Receive</CardTitle>
-                <CardDescription>{chain.networkLabel}</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col items-center gap-4">
-                {receiveQr ? <img className="qr" src={receiveQr} alt="Receive address QR code" /> : <p>No address</p>}
-                <p className="address-text text-center text-xs text-muted-foreground">
-                  {selectedSnapshot?.address ?? 'Address unavailable'}
-                </p>
-              </CardContent>
-              <CardFooter>
-                <Button className="w-full" variant="secondary" onClick={copyAddress}>
-                  <Copy data-icon="inline-start" />
-                  Copy address
-                </Button>
-              </CardFooter>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="activity" className="mt-3">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Activity />
-                  Transactions
-                </CardTitle>
-                <CardDescription>Submitted transactions are refreshed by the background service worker.</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                <Select value={txFilter} onValueChange={setTxFilter}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Filter transactions" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="all">All transactions</SelectItem>
-                      <SelectItem value="submitted">Submitted</SelectItem>
-                      <SelectItem value="confirmed">Confirmed</SelectItem>
-                      <SelectItem value="failed">Failed</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                {filteredTransactions.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No transactions yet</p>
-                ) : (
-                  filteredTransactions.slice(0, 8).map((tx) => (
-                    <article key={tx.id} className="flex flex-col gap-2 rounded-lg border p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <strong className="text-sm">
-                          {tx.assetId} on {getChain(tx.chainId, tx.networkMode).label}
-                        </strong>
-                        <Badge variant={tx.status === 'failed' ? 'destructive' : 'secondary'}>{tx.status}</Badge>
-                      </div>
-                      <p className="tx-hash text-xs text-muted-foreground">{tx.error ?? tx.hash ?? tx.to}</p>
-                      <p className="text-xs text-muted-foreground">{formatDate(tx.createdAt)}</p>
-                    </article>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="wdk" className="mt-3">
-            <Card>
-              <CardHeader>
-                <CardTitle>WDK primitives</CardTitle>
-                <CardDescription>
+          <TabsContent value="wdk" className="mt-4 flex flex-col gap-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h2 className="text-base font-semibold">WDK primitives</h2>
+                <p className="text-sm text-muted-foreground">
                   Advanced console for installed WDK modules: core, wallet, EVM, Bitcoin, and Spark.
-                </CardDescription>
-                <CardAction>
-                  <Badge variant="outline">{visiblePrimitives.length} ops</Badge>
-                </CardAction>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                <div className="flex flex-col gap-2">
-                  <Label>Operation</Label>
-                  <Select
-                    value={primitiveId}
-                    onValueChange={(value) => {
-                      const next = visiblePrimitives.find((primitive) => primitive.id === value);
-                      setPrimitiveId(value as WdkPrimitiveId);
-                      setPrimitivePayload(next?.payloadHint ?? '');
-                      setPrimitiveResult('');
-                    }}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Operation" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {visiblePrimitives.map((primitive) => (
-                          <SelectItem key={primitive.id} value={primitive.id}>
-                            {primitive.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {selectedPrimitive && (
-                  <Alert>
-                    <Settings />
-                    <AlertTitle>{selectedPrimitive.category}</AlertTitle>
-                    <AlertDescription>{selectedPrimitive.description}</AlertDescription>
-                  </Alert>
-                )}
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="primitive-payload">JSON payload</Label>
-                  <Textarea
-                    id="primitive-payload"
-                    value={primitivePayload}
-                    onChange={(event) => setPrimitivePayload(event.target.value)}
-                    rows={5}
-                    placeholder="{}"
-                  />
-                </div>
-                {primitiveResult && (
-                  <>
-                    <Separator />
-                    <pre className="result-box rounded-lg bg-muted p-3 text-xs">{primitiveResult}</pre>
-                  </>
-                )}
-              </CardContent>
-              <CardFooter>
-                <Button className="w-full" onClick={executePrimitive} disabled={busy}>
-                  Execute primitive
-                </Button>
-              </CardFooter>
-            </Card>
+                </p>
+              </div>
+              <Badge variant="outline">{visiblePrimitives.length} ops</Badge>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>Operation</Label>
+              <Select
+                value={primitiveId}
+                onValueChange={(value) => {
+                  const next = visiblePrimitives.find((primitive) => primitive.id === value);
+                  setPrimitiveId(value as WdkPrimitiveId);
+                  setPrimitivePayload(next?.payloadHint ?? '');
+                  setPrimitiveResult('');
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Operation" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {visiblePrimitives.map((primitive) => (
+                      <SelectItem key={primitive.id} value={primitive.id}>
+                        {primitive.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+            {selectedPrimitive && (
+              <Alert>
+                <Settings />
+                <AlertTitle>{selectedPrimitive.category}</AlertTitle>
+                <AlertDescription>{selectedPrimitive.description}</AlertDescription>
+              </Alert>
+            )}
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="primitive-payload">JSON payload</Label>
+              <Textarea
+                id="primitive-payload"
+                value={primitivePayload}
+                onChange={(event) => setPrimitivePayload(event.target.value)}
+                rows={5}
+                placeholder="{}"
+                className="font-mono text-xs"
+              />
+            </div>
+            <Button className="w-full" onClick={executePrimitive} disabled={busy}>
+              <Terminal data-icon="inline-start" />
+              Execute primitive
+            </Button>
+            {primitiveResult && (
+              <div className="flex flex-col gap-2">
+                <Label>Result</Label>
+                <pre className="result-box rounded-lg border bg-input/30 p-3 text-xs">{primitiveResult}</pre>
+              </div>
+            )}
           </TabsContent>
         </Tabs>
 

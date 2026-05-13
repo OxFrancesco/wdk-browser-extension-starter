@@ -2,11 +2,17 @@ import { describe, expect, it } from 'vitest';
 
 import {
   addRpcPreference,
+  addCustomEvmChain,
   CHAINS,
+  findEvmChainByHexId,
   formatBaseUnits,
+  getChain,
+  getChainList,
   getCustomRpcUrls,
   getEffectiveRpcUrls,
   getChains,
+  normalizeAddEthereumChainParameter,
+  normalizeCustomEvmChains,
   normalizeRpcPreferences,
   normalizeRpcUrl,
   parseBaseUnits,
@@ -74,6 +80,49 @@ describe('chain configuration', () => {
       'https://rpc.example.com/*',
     );
     expect(normalizeRpcPreferences({ mainnet: { ethereum: ['not a url'] } })).toEqual({});
+  });
+
+  it('normalizes and registers custom EIP-155 chains per network mode', () => {
+    const customChain = normalizeAddEthereumChainParameter(
+      {
+        chainId: '0x2105',
+        chainName: 'Base',
+        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+        rpcUrls: ['https://base.example.com/rpc'],
+        blockExplorerUrls: ['https://basescan.org'],
+      },
+      'mainnet',
+      1,
+    );
+    const customEvmChains = addCustomEvmChain(undefined, customChain);
+
+    expect(getChain(customChain.id, 'mainnet', customEvmChains).chainId).toBe(8453);
+    expect(getChainList('mainnet', customEvmChains).map((chain) => chain.id)).toContain(customChain.id);
+    expect(findEvmChainByHexId('0x2105', customEvmChains)?.chainId).toBe(customChain.id);
+    expect(getCustomRpcUrls(
+      addRpcPreference(undefined, customChain.id, 'mainnet', 'https://base-alt.example.com', customEvmChains),
+      customChain.id,
+      'mainnet',
+      customEvmChains,
+    )).toEqual(['https://base-alt.example.com/']);
+  });
+
+  it('drops malformed custom EVM chain records', () => {
+    expect(normalizeCustomEvmChains({
+      mainnet: {
+        'eip155:8453': {
+          id: 'eip155:8453',
+          chainId: 8453,
+          label: 'Base',
+          networkLabel: 'Base',
+          networkMode: 'mainnet',
+          rpcUrls: ['http://insecure.example.com'],
+          nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+    })).toEqual({});
   });
 });
 

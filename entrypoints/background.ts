@@ -1,13 +1,16 @@
 import { storage } from '@wxt-dev/storage';
 
 import {
+  addCustomEvmChain,
   addRpcPreference,
-  CHAIN_ORDER,
-  EVM_CHAIN_ORDER,
   findEvmChainByHexId,
+  getChainList,
   getEvmChain,
+  normalizeAddEthereumChainParameter,
+  normalizeCustomEvmChains,
   normalizeRpcPreferences,
   normalizeRpcUrl,
+  removeCustomEvmChain,
   removeRpcPreference,
   rpcPermissionPattern,
   toHexChainId,
@@ -17,6 +20,7 @@ import type { DappApproval, DappRequest, RuntimeRequest, RuntimeResponse } from 
 import type {
   DappPermission,
   DashboardState,
+  CustomEvmChain,
   EvmChainId,
   NetworkMode,
   TransactionRecord,
@@ -83,6 +87,7 @@ const READ_ONLY_ETH_METHODS = new Set([
 
 function normalizeDappPermissions(
   permissions: VaultPlaintext['dappPermissions'] | undefined,
+  customEvmChains: VaultPlaintext['customEvmChains'] | undefined,
 ): VaultPlaintext['dappPermissions'] {
   const normalized: VaultPlaintext['dappPermissions'] = {};
 
@@ -90,7 +95,7 @@ function normalizeDappPermissions(
     try {
       const origin = new URL(permission.origin).origin;
       if (!origin.startsWith('https://')) continue;
-      if (!EVM_CHAIN_ORDER.includes(permission.chainId)) continue;
+      getEvmChain(permission.chainId, permission.networkMode, customEvmChains);
       normalized[origin] = { ...permission, origin };
     } catch {
       // Ignore malformed legacy records.
@@ -101,11 +106,14 @@ function normalizeDappPermissions(
 }
 
 function normalizeVault(vault: VaultPlaintext): VaultPlaintext {
+  const customEvmChains = normalizeCustomEvmChains(vault.customEvmChains);
+
   return {
     ...vault,
     networkMode: vault.networkMode ?? 'mainnet',
-    rpcPreferences: normalizeRpcPreferences(vault.rpcPreferences),
-    dappPermissions: normalizeDappPermissions(vault.dappPermissions),
+    customEvmChains,
+    rpcPreferences: normalizeRpcPreferences(vault.rpcPreferences, customEvmChains),
+    dappPermissions: normalizeDappPermissions(vault.dappPermissions, customEvmChains),
     transactions: vault.transactions.map((transaction) => ({
       ...transaction,
       networkMode: transaction.networkMode ?? vault.networkMode ?? 'mainnet',
@@ -151,6 +159,7 @@ async function refreshSessionTransactions(): Promise<void> {
   const nextTransactions = await refreshTransactionStatuses(
     sessionVault.transactions,
     sessionVault.rpcPreferences,
+    sessionVault.customEvmChains,
   );
   const changed = nextTransactions.some(
     (transaction, index) => transaction !== sessionVault?.transactions[index],
@@ -181,6 +190,7 @@ async function buildDashboard(): Promise<DashboardState> {
       hasVault: Boolean(envelope),
       activeWalletId: null,
       networkMode: 'mainnet',
+      customEvmChains: {},
       rpcPreferences: {},
       dappPermissions: {},
       sessionExpiresAt: null,
@@ -197,13 +207,14 @@ async function buildDashboard(): Promise<DashboardState> {
   const accounts = activeWallet
     ? await Promise.all(
         accountIndexes.flatMap((accountIndex) =>
-          CHAIN_ORDER.map((chainId) =>
+          getChainList(vault.networkMode, vault.customEvmChains).map((chain) =>
             getAccountSnapshot(
               activeWallet,
-              chainId,
+              chain.id,
               accountIndex,
               vault.networkMode,
               vault.rpcPreferences,
+              vault.customEvmChains,
             ),
           ),
         ),
@@ -215,6 +226,7 @@ async function buildDashboard(): Promise<DashboardState> {
     hasVault: Boolean(envelope),
     activeWalletId: vault.activeWalletId,
     networkMode: vault.networkMode,
+    customEvmChains: vault.customEvmChains,
     rpcPreferences: vault.rpcPreferences,
     dappPermissions: vault.dappPermissions,
     sessionExpiresAt,
@@ -244,6 +256,7 @@ async function createVault(password: string, seedPhrase: string, name: string): 
     version: 1,
     activeWalletId: wallet.id,
     networkMode: 'mainnet',
+    customEvmChains: {},
     rpcPreferences: {},
     dappPermissions: {},
     sessionTimeoutMinutes: 15,
@@ -358,16 +371,25 @@ async function postJsonRpc<T>(
   method: string,
   params: unknown[],
 ): Promise<T> {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: crypto.randomUUID(),
-      method,
-      params,
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20_000);
+  let response: Response;
+
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: crypto.randomUUID(),
+        method,
+        params,
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     throw new Error(`RPC status ${response.status}`);
@@ -381,8 +403,8 @@ async function postJsonRpc<T>(
   return payload.result as T;
 }
 
-function getPermissionChain(permission: DappPermission) {
-  return getEvmChain(permission.chainId, permission.networkMode);
+function getPermissionChain(vault: VaultPlaintext, permission: DappPermission) {
+  return getEvmChain(permission.chainId, permission.networkMode, vault.customEvmChains);
 }
 
 async function getPermissionAddress(
@@ -398,6 +420,7 @@ async function getPermissionAddress(
     permission.accountIndex,
     permission.networkMode,
     vault.rpcPreferences,
+    vault.customEvmChains,
   );
 }
 
@@ -422,8 +445,9 @@ async function approveDappConnection(
     permission.accountIndex,
     permission.networkMode,
     vault.rpcPreferences,
+    vault.customEvmChains,
   );
-  const chain = getPermissionChain(permission);
+  const chain = getPermissionChain(vault, permission);
 
   await requestDappApproval({
     origin,
@@ -437,6 +461,18 @@ async function approveDappConnection(
   vault.dappPermissions[origin] = permission;
   await persistSession();
   return permission;
+}
+
+async function verifyCustomEvmChainRpc(chain: CustomEvmChain): Promise<void> {
+  await Promise.all(
+    chain.rpcUrls.map(async (rpcUrl) => {
+      await assertRpcHostPermission(rpcUrl);
+      const reportedChainId = await postJsonRpc<string>(rpcUrl, 'eth_chainId', []);
+      if (reportedChainId?.toLowerCase() !== toHexChainId(chain.chainId)) {
+        throw new Error(`${new URL(rpcUrl).origin} reported ${reportedChainId ?? 'no chain id'}, expected ${toHexChainId(chain.chainId)}.`);
+      }
+    }),
+  );
 }
 
 async function requireDappPermission(
@@ -467,7 +503,7 @@ async function handleDappRequest(vault: VaultPlaintext, request: DappRequest): P
       chainId: 'ethereum' as const,
       networkMode: vault.networkMode,
     };
-    return toHexChainId(getEvmChain(permission.chainId, permission.networkMode).chainId);
+    return toHexChainId(getEvmChain(permission.chainId, permission.networkMode, vault.customEvmChains).chainId);
   }
 
   if (request.method === 'net_version') {
@@ -475,13 +511,13 @@ async function handleDappRequest(vault: VaultPlaintext, request: DappRequest): P
       chainId: 'ethereum' as const,
       networkMode: vault.networkMode,
     };
-    return String(getEvmChain(permission.chainId, permission.networkMode).chainId);
+    return String(getEvmChain(permission.chainId, permission.networkMode, vault.customEvmChains).chainId);
   }
 
   if (request.method === 'wallet_switchEthereumChain') {
     const [{ chainId } = {}] = params as Array<{ chainId?: string }>;
     if (!chainId) throw new Error('wallet_switchEthereumChain requires a chainId.');
-    const target = findEvmChainByHexId(chainId);
+    const target = findEvmChainByHexId(chainId, vault.customEvmChains);
     if (!target) throw new Error(`Unsupported EVM chain: ${chainId}.`);
     const permission = await requireDappPermission(vault, origin);
     vault.dappPermissions[origin] = {
@@ -496,10 +532,30 @@ async function handleDappRequest(vault: VaultPlaintext, request: DappRequest): P
   }
 
   if (request.method === 'wallet_addEthereumChain') {
-    const [{ chainId } = {}] = params as Array<{ chainId?: string }>;
-    if (!chainId || !findEvmChainByHexId(chainId)) {
-      throw new Error(`Unsupported EVM chain: ${chainId ?? 'unknown'}.`);
+    const [chainRequest] = params;
+    const chainId = (chainRequest as { chainId?: string } | undefined)?.chainId;
+    if (chainId && findEvmChainByHexId(chainId, vault.customEvmChains)) {
+      return null;
     }
+
+    const customChain = normalizeAddEthereumChainParameter(chainRequest, vault.networkMode);
+    await requestDappApproval({
+      origin,
+      action: 'chain',
+      title: 'Add network',
+      description: 'Allow this site to add an EVM network and use the listed RPC endpoint from this wallet.',
+      chainLabel: customChain.networkLabel,
+      payload: stringifyPayload({
+        chainId: toHexChainId(customChain.chainId),
+        rpcUrls: customChain.rpcUrls,
+        nativeCurrency: customChain.nativeCurrency,
+      }),
+      permissionOrigins: customChain.rpcUrls.map(rpcPermissionPattern),
+    });
+    await verifyCustomEvmChainRpc(customChain);
+    vault.customEvmChains = addCustomEvmChain(vault.customEvmChains, customChain);
+    vault.rpcPreferences = normalizeRpcPreferences(vault.rpcPreferences, vault.customEvmChains);
+    await persistSession();
     return null;
   }
 
@@ -507,7 +563,7 @@ async function handleDappRequest(vault: VaultPlaintext, request: DappRequest): P
   const wallet = vault.wallets.find((candidate) => candidate.id === permission.walletId);
   if (!wallet) throw new Error('Approved wallet is no longer available.');
   const address = await getPermissionAddress(vault, permission);
-  const chain = withRpcPreferences(getPermissionChain(permission), vault.rpcPreferences);
+  const chain = withRpcPreferences(getPermissionChain(vault, permission), vault.rpcPreferences);
 
   if (READ_ONLY_ETH_METHODS.has(request.method)) {
     if (request.method === 'net_version') return String(chain.chainId);
@@ -535,6 +591,7 @@ async function handleDappRequest(vault: VaultPlaintext, request: DappRequest): P
       permission.networkMode,
       message,
       vault.rpcPreferences,
+      vault.customEvmChains,
     );
   }
 
@@ -561,6 +618,7 @@ async function handleDappRequest(vault: VaultPlaintext, request: DappRequest): P
       permission.networkMode,
       typedData,
       vault.rpcPreferences,
+      vault.customEvmChains,
     );
   }
 
@@ -583,6 +641,7 @@ async function handleDappRequest(vault: VaultPlaintext, request: DappRequest): P
       permission.networkMode,
       transaction,
       vault.rpcPreferences,
+      vault.customEvmChains,
     );
   }
 
@@ -679,6 +738,7 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
       request.chainId,
       request.networkMode,
       url,
+      vault.customEvmChains,
     );
     await persistSession();
     return buildDashboard();
@@ -690,6 +750,22 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
       request.chainId,
       request.networkMode,
       request.url,
+      vault.customEvmChains,
+    );
+    await persistSession();
+    return buildDashboard();
+  }
+
+  if (request.type === 'chain:removeCustom') {
+    vault.customEvmChains = removeCustomEvmChain(
+      vault.customEvmChains,
+      request.chainId,
+      request.networkMode,
+    );
+    vault.rpcPreferences = normalizeRpcPreferences(vault.rpcPreferences, vault.customEvmChains);
+    vault.transactions = vault.transactions.filter((transaction) => transaction.chainId !== request.chainId);
+    vault.dappPermissions = Object.fromEntries(
+      Object.entries(vault.dappPermissions).filter(([, permission]) => permission.chainId !== request.chainId),
     );
     await persistSession();
     return buildDashboard();
@@ -702,7 +778,7 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
   if (request.type === 'send:quote') {
     const wallet = vault.wallets.find((candidate) => candidate.id === request.request.walletId);
     if (!wallet) throw new Error('Wallet not found.');
-    return quoteSend(wallet, request.request, vault.networkMode, vault.rpcPreferences);
+    return quoteSend(wallet, request.request, vault.networkMode, vault.rpcPreferences, vault.customEvmChains);
   }
 
   if (request.type === 'send:broadcast') {
@@ -725,6 +801,7 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
         request.request,
         vault.networkMode,
         vault.rpcPreferences,
+        vault.customEvmChains,
       );
       record.hash = result.hash;
       record.fee = result.fee;
@@ -742,7 +819,13 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
   if (request.type === 'primitive:execute') {
     const wallet = vault.wallets.find((candidate) => candidate.id === request.request.walletId);
     if (!wallet) throw new Error('Wallet not found.');
-    return executePrimitive(wallet, request.request, vault.networkMode, vault.rpcPreferences);
+    return executePrimitive(
+      wallet,
+      request.request,
+      vault.networkMode,
+      vault.rpcPreferences,
+      vault.customEvmChains,
+    );
   }
 
   throw new Error('Unsupported request.');

@@ -15,6 +15,16 @@ async function selectByName(page, triggerIndex, optionName) {
   await page.getByRole('option', { name: optionName }).click();
 }
 
+async function approveExtensionRequest(context, extensionId, title) {
+  const approvalPage = await context.waitForEvent('page', {
+    predicate: (candidate) => candidate.url().startsWith(`chrome-extension://${extensionId}/connect.html`),
+    timeout: 15_000,
+  });
+  await approvalPage.getByText(title).waitFor({ timeout: 15_000 });
+  await approvalPage.getByRole('button', { name: 'Approve' }).click();
+  await approvalPage.waitForEvent('close', { timeout: 30_000 }).catch(() => undefined);
+}
+
 async function main() {
   const errors = [];
   const context = await chromium.launchPersistentContext(userDataDir, {
@@ -46,17 +56,19 @@ async function main() {
     await page.goto(`chrome-extension://${extensionId}/popup.html`);
     await page.getByRole('heading', { name: 'WDK Wallet' }).waitFor({ timeout: 15_000 });
     await page.getByLabel('Wallet name').fill('Primary E2E wallet');
+    await page.getByRole('button', { name: 'Recover wallet' }).click();
     await page.getByLabel('Seed phrase').fill(seed);
+    await page.getByRole('button', { name: 'Continue' }).click();
     await page.getByLabel('Password').fill(password);
-    await page.getByRole('button', { name: /Create encrypted vault/i }).click();
+    await page.getByRole('button', { name: 'Create vault' }).click();
 
-    await page.getByText(/Account 1 on Ethereum Mainnet/i).waitFor({ timeout: 90_000 });
-    await selectByName(page, 0, 'Testnet');
-    await page.getByText(/Account 1 on Ethereum Sepolia/i).waitFor({ timeout: 90_000 });
+    await page.getByText(/0x9858Ef/i).waitFor({ timeout: 90_000 });
+    await page.locator('#network-mode').click();
+    await page.locator('label[for="network-mode"]').getByText('Testnet', { exact: true }).waitFor({ timeout: 15_000 });
 
     await page.getByRole('button', { name: 'Add account' }).click();
-    await selectByName(page, 3, 'Account 2');
-    await page.getByText(/Account 2 on Ethereum Sepolia/i).waitFor({ timeout: 90_000 });
+    await selectByName(page, 2, 'Account 2');
+    await page.getByText(/0x6Fac4D/i).waitFor({ timeout: 90_000 });
 
     await page.getByTitle('Add wallet').click();
     await page.locator('#new-wallet-name').fill('Second E2E wallet');
@@ -78,7 +90,7 @@ async function main() {
     await page.getByRole('button', { name: 'Unlock' }).waitFor({ timeout: 15_000 });
     await page.getByLabel('Password').fill(password);
     await page.getByRole('button', { name: 'Unlock' }).click();
-    await page.getByText(/Account 1 on Ethereum Sepolia/i).waitFor({ timeout: 90_000 });
+    await page.getByText(/0x9858Ef/i).waitFor({ timeout: 90_000 });
 
     const dappPage = await context.newPage();
     dappPage.on('pageerror', (error) => errors.push(`dapp pageerror: ${error.message}`));
@@ -89,12 +101,7 @@ async function main() {
     await dappPage.goto('https://example.com');
     await dappPage.waitForFunction(() => Boolean(window.ethereum?.isWDKWallet), null, { timeout: 15_000 });
     const accountRequest = dappPage.evaluate(() => window.ethereum.request({ method: 'eth_requestAccounts' }));
-    const approvalPage = await context.waitForEvent('page', {
-      predicate: (candidate) => candidate.url().startsWith(`chrome-extension://${extensionId}/connect.html`),
-      timeout: 15_000,
-    });
-    await approvalPage.getByText('Connect website').waitFor({ timeout: 15_000 });
-    await approvalPage.getByRole('button', { name: 'Approve' }).click();
+    await approveExtensionRequest(context, extensionId, 'Connect website');
     const dappAccounts = await accountRequest;
     if (!Array.isArray(dappAccounts) || !/^0x[0-9a-fA-F]{40}$/.test(dappAccounts[0] ?? '')) {
       throw new Error('Injected Ethereum provider did not return an EVM account.');
@@ -102,6 +109,33 @@ async function main() {
     const dappChainId = await dappPage.evaluate(() => window.ethereum.request({ method: 'eth_chainId' }));
     if (dappChainId !== '0xaa36a7') {
       throw new Error(`Expected Sepolia chain id 0xaa36a7, got ${dappChainId}.`);
+    }
+
+    const addChainRequest = dappPage.evaluate(() =>
+      window.ethereum.request({
+        method: 'wallet_addEthereumChain',
+        params: [
+          {
+            chainId: '0x2105',
+            chainName: 'Base E2E',
+            nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+            rpcUrls: ['https://base-rpc.publicnode.com'],
+            blockExplorerUrls: ['https://basescan.org'],
+          },
+        ],
+      }),
+    );
+    await approveExtensionRequest(context, extensionId, 'Add network');
+    await addChainRequest;
+    await dappPage.evaluate(() =>
+      window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x2105' }],
+      }),
+    );
+    const customChainId = await dappPage.evaluate(() => window.ethereum.request({ method: 'eth_chainId' }));
+    if (customChainId !== '0x2105') {
+      throw new Error(`Expected custom Base chain id 0x2105, got ${customChainId}.`);
     }
     await dappPage.close();
 
@@ -122,6 +156,7 @@ async function main() {
         'locked and unlocked existing vault',
         'injected MetaMask-compatible EIP-1193 provider',
         'approved eth_requestAccounts from a website',
+        'approved wallet_addEthereumChain and switched to a custom EIP-155 network',
       ],
       textSample: visibleText.slice(0, 900),
       errors,

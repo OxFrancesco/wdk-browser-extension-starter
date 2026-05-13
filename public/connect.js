@@ -14,7 +14,26 @@ async function send(message) {
   return chrome.runtime.sendMessage(message);
 }
 
-async function resolve(approved) {
+async function requestOrigins(origins) {
+  if (!origins?.length) return true;
+
+  const granted = await new Promise((resolve) => {
+    chrome.permissions.request({ origins }, resolve);
+  });
+  if (granted) return true;
+
+  return new Promise((resolve) => {
+    chrome.permissions.contains({ origins }, resolve);
+  });
+}
+
+async function resolve(approved, request) {
+  if (approved && !(await requestOrigins(request?.permissionOrigins))) {
+    description.textContent = 'The requested RPC host permission was not granted.';
+    approve.disabled = true;
+    return;
+  }
+
   await send({ type: 'dapp:approval:resolve', id, approved });
   window.close();
 }
@@ -43,8 +62,8 @@ async function load() {
     payload.textContent = request.payload;
   }
 
-  approve.addEventListener('click', () => resolve(true));
-  reject.addEventListener('click', () => resolve(false));
+  approve.addEventListener('click', () => resolve(true, request));
+  reject.addEventListener('click', () => resolve(false, request));
 }
 
 load().catch(() => {

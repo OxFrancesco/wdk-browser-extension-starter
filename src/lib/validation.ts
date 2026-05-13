@@ -3,12 +3,13 @@ import { address as bitcoinAddress, networks } from 'bitcoinjs-lib';
 import { isAddress as isEvmAddress } from 'ethers';
 
 import { getChain } from './chains';
-import type { ChainId, NetworkMode } from './types';
+import type { ChainId, CustomEvmChains, NetworkMode } from './types';
 
 export function validateRecipientAddress(
   chainId: ChainId,
   recipient: string,
   networkMode: NetworkMode,
+  customEvmChains?: CustomEvmChains,
 ): string {
   const value = recipient.trim();
 
@@ -16,7 +17,7 @@ export function validateRecipientAddress(
     throw new Error('Recipient address is required.');
   }
 
-  const chain = getChain(chainId, networkMode);
+  const chain = getChain(chainId, networkMode, customEvmChains);
 
   if (chain.family === 'evm') {
     if (!isEvmAddress(value)) {

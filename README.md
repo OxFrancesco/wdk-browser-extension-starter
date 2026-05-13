@@ -63,6 +63,7 @@ See `docs/SECURITY.md` for the fuller extension-specific security checklist.
 - Websites only receive EVM accounts after an extension-owned approval window grants the origin. Signatures and transaction broadcasts require separate approval prompts.
 - Manifest host permissions are limited to explicit HTTPS RPC/indexer/operator endpoints for the configured networks.
 - Custom RPC URLs are HTTPS-only, stored inside the encrypted vault, and require optional host permission for the RPC origin before use.
+- Dapp-added EVM networks are stored as encrypted `eip155:<chainId>` custom chains only after user approval, HTTPS RPC validation, host permission, and an `eth_chainId` consistency check against every submitted RPC URL.
 - Recipient addresses are validated per network before a quote or broadcast is attempted.
 - Live sends are routed through WDK wallet modules and fail closed when a module or RPC is not configured.
 - Plasma mainnet and testnet RPCs are configured; production wallets should still replace public endpoints with owned RPC infrastructure.
@@ -75,12 +76,13 @@ The starter uses the WDK APIs available in the local beta codebase:
 - Multi-wallet and multi-account derivation
 - Mainnet/testnet registration for EVM, Bitcoin, Spark, and Solana WDK wallet modules across Bitcoin, Spark, Ethereum, Polygon, Arbitrum, Plasma, and Solana
 - Per-chain custom RPC URLs for Bitcoin Blockbook, EVM, and Solana mainnet/testnet profiles, with user-added URLs tried before built-in fallbacks
-- EVM dApp connection via `window.ethereum` / EIP-1193 for Ethereum, Polygon, Arbitrum, and Plasma, including `eth_requestAccounts`, `eth_accounts`, `eth_chainId`, `wallet_switchEthereumChain`, selected read-only JSON-RPC proxy methods, `personal_sign`, `eth_signTypedData_v4`, and `eth_sendTransaction`
+- EVM dApp connection via `window.ethereum` / EIP-1193 for Ethereum, Polygon, Arbitrum, Plasma, and approved custom EIP-155 networks, including `eth_requestAccounts`, `eth_accounts`, `eth_chainId`, `wallet_switchEthereumChain`, `wallet_addEthereumChain`, selected read-only JSON-RPC proxy methods, `personal_sign`, `eth_signTypedData_v4`, and `eth_sendTransaction`
 - Address derivation for supported networks
 - Native/token balance lookups where the wallet module exposes providers
 - Send quotes and broadcasts where the selected module exposes those methods
 - Transaction status refresh for submitted transactions with supported public status endpoints
 - Mainnet/testnet switching for Bitcoin, Spark, Ethereum, Polygon, Arbitrum, Plasma, and Solana
+- Multiple custom EVM mainnet/testnet chains can be added by dapps through `wallet_addEthereumChain`, registered dynamically with WDK, selected in the popup, and removed from the RPC settings sheet
 - Popup WDK primitive console for installed WDK account primitives, including core account/fee methods, common wallet actions, EVM signing/approval/delegation helpers, Bitcoin max-spendable lookup, and Spark deposit, invoice, Lightning, withdraw, and sync operations
 
 Lifecycle and wiring primitives such as wallet registration, protocol registration, middleware registration, and disposal are owned by the background runtime instead of being exposed to the page or popup console. Some behavior depends on public RPC/indexer availability and funded accounts. Production teams should replace public endpoints with owned infrastructure before shipping.

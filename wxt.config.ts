@@ -24,6 +24,7 @@ export default defineConfig({
       'https://arb1.arbitrum.io/*',
       'https://arbitrum-one-rpc.publicnode.com/*',
       'https://arbitrum-sepolia-rpc.publicnode.com/*',
+      'https://base-rpc.publicnode.com/*',
       'https://btc1.trezor.io/*',
       'https://eth.llamarpc.com/*',
       'https://ethereum-rpc.publicnode.com/*',
