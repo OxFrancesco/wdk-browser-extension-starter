@@ -11,6 +11,7 @@ import {
   getCustomRpcUrls,
   getEffectiveRpcUrls,
   getChains,
+  getKnownCustomEvmChainByHexId,
   normalizeAddEthereumChainParameter,
   normalizeCustomEvmChains,
   normalizeRpcPreferences,
@@ -105,6 +106,22 @@ describe('chain configuration', () => {
       'mainnet',
       customEvmChains,
     )).toEqual(['https://base-alt.example.com/']);
+  });
+
+  it('provides trusted custom EVM chain templates for automatic dapp switching', () => {
+    expect(getKnownCustomEvmChainByHexId('0x1')).toBeNull();
+    expect(getKnownCustomEvmChainByHexId('0x2105', 1)).toMatchObject({
+      id: 'eip155:8453',
+      chainId: 8453,
+      label: 'Base',
+      networkLabel: 'Base Mainnet',
+      networkMode: 'mainnet',
+      rpcUrls: ['https://base-rpc.publicnode.com/'],
+      explorerTx: 'https://basescan.org/tx/',
+      nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      createdAt: 1,
+      updatedAt: 1,
+    });
   });
 
   it('drops malformed custom EVM chain records', () => {

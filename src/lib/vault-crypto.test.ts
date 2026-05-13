@@ -52,15 +52,19 @@ describe('vault encryption', () => {
 
   it('can re-encrypt existing legacy vaults without applying the new password policy', async () => {
     const legacyPassword = 'old vault!';
-    const legacyKey = await createVaultKey(legacyPassword, {
-      enforcePasswordPolicy: false,
-      iterations: 250_000,
-    });
-    const upgradeKey = await createVaultKey(legacyPassword, {
-      enforcePasswordPolicy: false,
-    });
-    const legacyEnvelope = await encryptVaultWithKey(vault, legacyKey);
-    const upgradedEnvelope = await encryptVaultWithKey(vault, upgradeKey);
+    const [legacyKey, upgradeKey] = await Promise.all([
+      createVaultKey(legacyPassword, {
+        enforcePasswordPolicy: false,
+        iterations: 250_000,
+      }),
+      createVaultKey(legacyPassword, {
+        enforcePasswordPolicy: false,
+      }),
+    ]);
+    const [legacyEnvelope, upgradedEnvelope] = await Promise.all([
+      encryptVaultWithKey(vault, legacyKey),
+      encryptVaultWithKey(vault, upgradeKey),
+    ]);
 
     expect(legacyEnvelope.iterations).toBe(250_000);
     expect(upgradedEnvelope.iterations).toBe(CURRENT_KDF_ITERATIONS);

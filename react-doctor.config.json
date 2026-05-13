@@ -1,0 +1,33 @@
+{
+  "entryFiles": [
+    "public/connect.css",
+    "public/connect.js",
+    "public/ethereum-provider.js",
+    "src/lib/node-crypto-browser.ts",
+    "src/lib/sodium-universal-browser.ts"
+  ],
+  "ignore": {
+    "files": [
+      "docs/wdk/**",
+      "public/connect.css",
+      "public/connect.js",
+      "public/ethereum-provider.js",
+      "src/lib/node-crypto-browser.ts",
+      "src/lib/sodium-universal-browser.ts"
+    ],
+    "overrides": [
+      {
+        "files": [
+          "entrypoints/popup/App.tsx"
+        ],
+        "rules": [
+          "react-doctor/no-giant-component",
+          "react-doctor/no-cascading-set-state",
+          "react-doctor/no-effect-chain",
+          "react-doctor/prefer-useReducer",
+          "react-doctor/rerender-state-only-in-handlers"
+        ]
+      }
+    ]
+  }
+}

@@ -24,7 +24,24 @@ const WELL_KNOWN_TESTNET_EVM_CHAIN_IDS = new Set([
 ]);
 export const EVM_CHAIN_ORDER: BuiltinEvmChainId[] = ['ethereum', 'polygon', 'arbitrum', 'plasma'];
 
-export type AddEthereumChainParameter = {
+const KNOWN_CUSTOM_EVM_CHAINS: Record<number, Omit<CustomEvmChain, 'createdAt' | 'updatedAt'>> = {
+  8453: {
+    id: 'eip155:8453',
+    chainId: 8453,
+    label: 'Base',
+    networkLabel: 'Base Mainnet',
+    networkMode: 'mainnet',
+    rpcUrls: ['https://base-rpc.publicnode.com/'],
+    explorerTx: 'https://basescan.org/tx/',
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18,
+    },
+  },
+};
+
+type AddEthereumChainParameter = {
   chainId?: string;
   chainName?: string;
   nativeCurrency?: {
@@ -312,7 +329,7 @@ export function isCustomEvmChainId(chainId: string): chainId is CustomEvmChainId
   return /^eip155:[1-9]\d*$/.test(chainId);
 }
 
-export function customEvmChainId(chainId: number): CustomEvmChainId {
+function customEvmChainId(chainId: number): CustomEvmChainId {
   if (!Number.isSafeInteger(chainId) || chainId <= 0) {
     throw new Error('EVM chain id must be a positive safe integer.');
   }
@@ -345,7 +362,7 @@ function customChainToConfig(chain: CustomEvmChain): ChainConfig {
   };
 }
 
-export function getCustomEvmChainsForNetwork(
+function getCustomEvmChainsForNetwork(
   networkMode: NetworkMode,
   customEvmChains?: CustomEvmChains,
 ): CustomEvmChain[] {
@@ -451,6 +468,27 @@ export function findEvmChainByHexId(
   return null;
 }
 
+export function getKnownCustomEvmChainByHexId(
+  hexChainId: string,
+  now = Date.now(),
+): CustomEvmChain | null {
+  const parsed = parseHexChainId(hexChainId);
+  if (!parsed || findBuiltinEvmChainByNumericId(parsed)) return null;
+
+  const knownChain = KNOWN_CUSTOM_EVM_CHAINS[parsed];
+  if (!knownChain) return null;
+
+  return normalizeCustomEvmChains({
+    [knownChain.networkMode]: {
+      [knownChain.id]: {
+        ...knownChain,
+        createdAt: now,
+        updatedAt: now,
+      },
+    },
+  })[knownChain.networkMode]?.[knownChain.id] ?? null;
+}
+
 function normalizeLabel(value: unknown, fallback: string, maxLength = 64): string {
   const label = String(value ?? '').trim().replace(/\s+/g, ' ');
   if (!label) return fallback;
@@ -513,7 +551,7 @@ function normalizeNativeCurrency(
   };
 }
 
-export function inferCustomEvmNetworkMode(chainId: number, fallback: NetworkMode): NetworkMode {
+function inferCustomEvmNetworkMode(chainId: number, fallback: NetworkMode): NetworkMode {
   if (WELL_KNOWN_MAINNET_EVM_CHAIN_IDS.has(chainId)) return 'mainnet';
   if (WELL_KNOWN_TESTNET_EVM_CHAIN_IDS.has(chainId)) return 'testnet';
   return fallback;
@@ -698,6 +736,20 @@ export function rpcPermissionPattern(url: string): string {
   return `${parsed.origin}/*`;
 }
 
+function normalizeRpcUrlList(urls: string[] | undefined): string[] {
+  return [
+    ...new Set(
+      (urls ?? []).flatMap((url) => {
+        try {
+          return [normalizeRpcUrl(url)];
+        } catch {
+          return [];
+        }
+      }),
+    ),
+  ].slice(0, MAX_CUSTOM_RPC_URLS_PER_CHAIN);
+}
+
 export function getBuiltinRpcUrls(
   chainId: ChainId,
   networkMode: NetworkMode,
@@ -716,14 +768,7 @@ export function normalizeRpcPreferences(
     for (const chain of getChainList(networkMode, customEvmChains)) {
       if (!supportsCustomRpc(chain)) continue;
 
-      const urls = preferences?.[networkMode]?.[chain.id] ?? [];
-      const cleanUrls = [...new Set(urls.map((url) => {
-        try {
-          return normalizeRpcUrl(url);
-        } catch {
-          return '';
-        }
-      }).filter(Boolean))].slice(0, MAX_CUSTOM_RPC_URLS_PER_CHAIN);
+      const cleanUrls = normalizeRpcUrlList(preferences?.[networkMode]?.[chain.id]);
 
       if (cleanUrls.length) {
         normalized[networkMode] = {
@@ -751,13 +796,7 @@ function getStoredRpcUrls(
   chainId: ChainId,
   networkMode: NetworkMode,
 ): string[] {
-  return [...new Set((preferences?.[networkMode]?.[chainId] ?? []).map((url) => {
-    try {
-      return normalizeRpcUrl(url);
-    } catch {
-      return '';
-    }
-  }).filter(Boolean))].slice(0, MAX_CUSTOM_RPC_URLS_PER_CHAIN);
+  return normalizeRpcUrlList(preferences?.[networkMode]?.[chainId]);
 }
 
 export function getEffectiveRpcUrls(

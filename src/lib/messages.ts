@@ -9,7 +9,12 @@ import type {
   SendRequest,
 } from './types';
 
-export type WalletStatus = {
+type DashboardViewRequest = {
+  chainId?: ChainId;
+  accountIndex?: number;
+};
+
+type WalletStatus = {
   locked: boolean;
   hasVault: boolean;
   networkMode: NetworkMode;
@@ -34,7 +39,7 @@ export type DappApproval = {
 };
 
 export type RuntimeRequest =
-  | { type: 'vault:get' }
+  | ({ type: 'vault:get' } & DashboardViewRequest)
   | { type: 'vault:create'; password: string; seedPhrase: string; name: string }
   | { type: 'vault:unlock'; password: string }
   | { type: 'vault:lock' }
@@ -50,7 +55,7 @@ export type RuntimeRequest =
   | { type: 'rpc:add'; chainId: ChainId; networkMode: NetworkMode; url: string }
   | { type: 'rpc:remove'; chainId: ChainId; networkMode: NetworkMode; url: string }
   | { type: 'chain:removeCustom'; chainId: CustomEvmChainId; networkMode: NetworkMode }
-  | { type: 'wallet:refresh'; chainId?: ChainId }
+  | ({ type: 'wallet:refresh' } & DashboardViewRequest)
   | { type: 'send:quote'; request: SendRequest }
   | { type: 'send:broadcast'; request: SendRequest }
   | { type: 'primitive:execute'; request: PrimitiveRequest };
@@ -59,7 +64,7 @@ export type RuntimeResponse<T> =
   | { ok: true; data: T }
   | { ok: false; error: string };
 
-export type RuntimeResponseData = {
+type RuntimeResponseData = {
   'vault:get': DashboardState;
   'vault:create': DashboardState;
   'vault:unlock': DashboardState;

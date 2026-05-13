@@ -89,18 +89,15 @@ const emptyDashboard: DashboardState = {
   primitives: [],
 };
 
-function shortAddress(address: string): string {
-  if (!address) return 'Unavailable';
-  return `${address.slice(0, 8)}...${address.slice(-6)}`;
-}
+const dateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+});
 
 function formatDate(value: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
+  return dateFormatter.format(new Date(value));
 }
 
 function App() {
@@ -171,6 +168,14 @@ function App() {
   const filteredTransactions = dashboard.transactions.filter((tx) =>
     txFilter === 'all' ? true : tx.status === txFilter,
   );
+  const accountOptions = useMemo(
+    () =>
+      Array.from({ length: activeWallet?.accountCount ?? 1 }, (_, accountIndex) => ({
+        label: `Account ${accountIndex + 1}`,
+        value: String(accountIndex),
+      })),
+    [activeWallet?.accountCount],
+  );
 
   async function run<T>(task: () => Promise<T>, success?: string): Promise<T | undefined> {
     setToast(null);
@@ -191,7 +196,11 @@ function App() {
   }
 
   async function refresh() {
-    const response = await sendRuntimeMessage({ type: 'vault:get' });
+    const response = await sendRuntimeMessage({
+      type: 'vault:get',
+      chainId: activeChainId,
+      accountIndex: selectedAccount,
+    });
     if (!response.ok) throw new Error(response.error);
     setDashboard(response.data);
   }
@@ -199,6 +208,11 @@ function App() {
   useEffect(() => {
     run(refresh).finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (loading || dashboard.locked || !activeWallet || selectedSnapshot) return;
+    run(refresh);
+  }, [activeChainId, activeWallet, dashboard.locked, loading, selectedAccount, selectedSnapshot]);
 
   useEffect(() => {
     if (!selectedSnapshot?.address) {
@@ -472,7 +486,7 @@ function App() {
   }
 
   if (loading) {
-    return <main className="popup-shell status-only">Loading wallet...</main>;
+    return <main className="popup-shell status-only">Loading wallet…</main>;
   }
 
   if (dashboard.locked) {
@@ -512,7 +526,7 @@ function App() {
             <section className="flex flex-col gap-5">
               <div>
                 <h2 className="text-base font-semibold">
-                  {seedMode === 'recover' ? 'Step 1 — Recover wallet' : 'Step 1 — Create your wallet'}
+                  {seedMode === 'recover' ? 'Step 1: Recover wallet' : 'Step 1: Create your wallet'}
                 </h2>
                 <p className="text-sm text-muted-foreground">
                   {seedMode === 'recover'
@@ -626,7 +640,7 @@ function App() {
           ) : (
             <section className="flex flex-col gap-5">
               <div>
-                <h2 className="text-base font-semibold">Step 2 — Set a password</h2>
+                <h2 className="text-base font-semibold">Step 2: Set a password</h2>
                 <p className="text-sm text-muted-foreground">
                   Encrypts your seed phrase locally in extension storage.
                 </p>
@@ -662,7 +676,11 @@ function App() {
             </section>
           )}
 
-          {toast && <p className={`toast ${toast.tone}`}>{toast.message}</p>}
+          {toast && (
+            <p className={`toast ${toast.tone}`} role="alert">
+              {toast.message}
+            </p>
+          )}
         </main>
       </TooltipProvider>
     );
@@ -686,13 +704,13 @@ function App() {
                     <Settings />
                   </Button>
                 </SheetTrigger>
-                <SheetContent className="w-[360px]" side="right">
-                  <SheetHeader>
+                <SheetContent className="w-[360px] overflow-y-auto px-6 py-6" side="right">
+                  <SheetHeader className="p-0 pr-10">
                     <SheetTitle>Network RPCs</SheetTitle>
                     <SheetDescription>{chain.networkLabel}</SheetDescription>
                   </SheetHeader>
 
-                  <div className="mt-4 flex flex-col gap-4">
+                  <div className="mt-6 flex flex-col gap-5">
                     <div className="grid grid-cols-2 gap-2">
                       <Select
                         value={dashboard.networkMode}
@@ -884,9 +902,9 @@ function App() {
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {Array.from({ length: activeWallet?.accountCount ?? 1 }, (_, index) => (
-                    <SelectItem key={index} value={String(index)}>
-                      Account {index + 1}
+                  {accountOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
                     </SelectItem>
                   ))}
                 </SelectGroup>
@@ -1229,7 +1247,11 @@ function App() {
           </TabsContent>
         </Tabs>
 
-        {toast && <p className={`toast ${toast.tone}`}>{toast.message}</p>}
+        {toast && (
+          <p className={`toast ${toast.tone}`} role="alert">
+            {toast.message}
+          </p>
+        )}
       </main>
     </TooltipProvider>
   );

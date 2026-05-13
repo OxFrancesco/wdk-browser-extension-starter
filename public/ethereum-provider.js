@@ -3,6 +3,7 @@
 
   const REQUEST_TYPE = 'WDK_ETHEREUM_REQUEST';
   const RESPONSE_TYPE = 'WDK_ETHEREUM_RESPONSE';
+  const REQUEST_TIMEOUT_MS = 240000;
   const listeners = new Map();
   const pending = new Map();
 
@@ -33,7 +34,7 @@
       const timeout = setTimeout(() => {
         pending.delete(id);
         reject(makeProviderError('Ethereum provider request timed out.', -32000));
-      }, 120000);
+      }, REQUEST_TIMEOUT_MS);
       pending.set(id, { resolve, reject, method: args.method, timeout });
       window.postMessage(
         {

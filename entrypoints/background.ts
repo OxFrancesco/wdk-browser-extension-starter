@@ -6,6 +6,7 @@ import {
   findEvmChainByHexId,
   getChainList,
   getEvmChain,
+  getKnownCustomEvmChainByHexId,
   normalizeAddEthereumChainParameter,
   normalizeCustomEvmChains,
   normalizeRpcPreferences,
@@ -18,6 +19,7 @@ import {
 } from '@/src/lib/chains';
 import type { DappApproval, DappRequest, RuntimeRequest, RuntimeResponse } from '@/src/lib/messages';
 import type {
+  ChainId,
   DappPermission,
   DashboardState,
   CustomEvmChain,
@@ -57,13 +59,20 @@ const vaultItem = storage.defineItem<VaultEnvelope | null>('local:wdk-vault', {
 let sessionVault: VaultPlaintext | null = null;
 let sessionKey: VaultKey | null = null;
 let sessionExpiresAt: number | null = null;
+let unlockPromptWindowId: number | null = null;
 
 type PendingDappApproval = DappApproval & {
   resolve: (approved: boolean) => void;
   timeout: ReturnType<typeof setTimeout>;
 };
 
+type PendingUnlockRequest = {
+  resolve: () => void;
+  timeout: ReturnType<typeof setTimeout>;
+};
+
 const pendingDappApprovals = new Map<string, PendingDappApproval>();
+const pendingUnlockRequests = new Set<PendingUnlockRequest>();
 const READ_ONLY_ETH_METHODS = new Set([
   'eth_blockNumber',
   'eth_call',
@@ -84,6 +93,25 @@ const READ_ONLY_ETH_METHODS = new Set([
   'net_version',
   'web3_clientVersion',
 ]);
+
+type DashboardViewRequest = {
+  chainId?: ChainId;
+  accountIndex?: number;
+};
+
+type DappChainTarget = {
+  chainId: EvmChainId;
+  networkMode: NetworkMode;
+  customEvmChains: VaultPlaintext['customEvmChains'];
+  numericChainId: number;
+};
+
+const DAPP_CHAIN_DEFAULTS: Record<string, string> = {
+  'https://aerodrome.finance': '0x2105',
+  'https://www.aerodrome.finance': '0x2105',
+};
+const DAPP_UNLOCK_TIMEOUT_MS = 120_000;
+const PASSIVE_LOCKED_DAPP_METHODS = new Set(['eth_accounts', 'eth_chainId', 'net_version']);
 
 function normalizeDappPermissions(
   permissions: VaultPlaintext['dappPermissions'] | undefined,
@@ -145,6 +173,22 @@ function assertUnlocked(): VaultPlaintext {
   return sessionVault;
 }
 
+function isUnlocked(): boolean {
+  return Boolean(sessionVault && sessionExpiresAt && sessionExpiresAt > Date.now());
+}
+
+function resolvePendingUnlockRequests(): void {
+  for (const pending of pendingUnlockRequests) {
+    clearTimeout(pending.timeout);
+    pending.resolve();
+  }
+  pendingUnlockRequests.clear();
+}
+
+function isVaultDecryptFailure(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'OperationError';
+}
+
 async function persistSession(): Promise<void> {
   if (!sessionVault || !sessionKey) {
     throw new Error('No unlocked vault to persist.');
@@ -176,7 +220,29 @@ function publicWallet(wallet: VaultWallet) {
   return safeWallet;
 }
 
-async function buildDashboard(): Promise<DashboardState> {
+function getDashboardSnapshotRequests(
+  vault: VaultPlaintext,
+  activeWallet: VaultWallet | undefined,
+  view?: DashboardViewRequest,
+) {
+  if (!activeWallet) return [];
+
+  const chainList = getChainList(vault.networkMode, vault.customEvmChains);
+  const requestedChain =
+    chainList.find((chain) => chain.id === view?.chainId) ??
+    chainList.find((chain) => chain.id === 'ethereum') ??
+    chainList[0];
+  if (!requestedChain) return [];
+
+  const requestedAccount = Math.max(
+    0,
+    Math.min(view?.accountIndex ?? 0, activeWallet.accountCount - 1),
+  );
+
+  return [{ accountIndex: requestedAccount, chainId: requestedChain.id }];
+}
+
+async function buildDashboard(view?: DashboardViewRequest): Promise<DashboardState> {
   const envelope = await vaultItem.getValue();
   const vault = sessionVault && sessionExpiresAt && sessionExpiresAt > Date.now() ? sessionVault : null;
 
@@ -203,23 +269,18 @@ async function buildDashboard(): Promise<DashboardState> {
 
   const activeWallet = vault.wallets.find((wallet) => wallet.id === vault.activeWalletId) ?? vault.wallets[0];
   await refreshSessionTransactions();
-  const accountIndexes = Array.from({ length: activeWallet?.accountCount ?? 0 }, (_, index) => index);
-  const accounts = activeWallet
-    ? await Promise.all(
-        accountIndexes.flatMap((accountIndex) =>
-          getChainList(vault.networkMode, vault.customEvmChains).map((chain) =>
-            getAccountSnapshot(
-              activeWallet,
-              chain.id,
-              accountIndex,
-              vault.networkMode,
-              vault.rpcPreferences,
-              vault.customEvmChains,
-            ),
-          ),
-        ),
-      )
-    : [];
+  const accounts = await Promise.all(
+    getDashboardSnapshotRequests(vault, activeWallet, view).map(({ accountIndex, chainId }) =>
+      getAccountSnapshot(
+        activeWallet,
+        chainId,
+        accountIndex,
+        vault.networkMode,
+        vault.rpcPreferences,
+        vault.customEvmChains,
+      ),
+    ),
+  );
 
   return {
     locked: false,
@@ -239,7 +300,7 @@ async function buildDashboard(): Promise<DashboardState> {
 
 async function getPageBridgeStatus() {
   const envelope = await vaultItem.getValue();
-  const unlocked = Boolean(sessionVault && sessionExpiresAt && sessionExpiresAt > Date.now());
+  const unlocked = isUnlocked();
 
   return {
     locked: !unlocked,
@@ -266,6 +327,7 @@ async function createVault(password: string, seedPhrase: string, name: string): 
   sessionExpiresAt = Date.now() + sessionVault.sessionTimeoutMinutes * 60_000;
 
   await persistSession();
+  resolvePendingUnlockRequests();
   return buildDashboard();
 }
 
@@ -276,7 +338,13 @@ async function unlock(password: string): Promise<DashboardState> {
     throw new Error('No vault exists yet.');
   }
 
-  const opened = await openVault(envelope, password);
+  let opened: Awaited<ReturnType<typeof openVault>>;
+  try {
+    opened = await openVault(envelope, password);
+  } catch (error) {
+    if (!isVaultDecryptFailure(error)) throw error;
+    throw new Error('Incorrect password.');
+  }
   sessionVault = normalizeVault(opened.vault);
   sessionKey = opened.vaultKey;
   sessionExpiresAt = Date.now() + sessionVault.sessionTimeoutMinutes * 60_000;
@@ -286,6 +354,7 @@ async function unlock(password: string): Promise<DashboardState> {
     await persistSession();
   }
 
+  resolvePendingUnlockRequests();
   return buildDashboard();
 }
 
@@ -306,6 +375,62 @@ function normalizeOrigin(origin: string): string {
   return parsed.origin;
 }
 
+async function openWalletUnlockWindow(origin: string): Promise<void> {
+  const url = browser.runtime.getURL(`/popup.html?unlock=1&origin=${encodeURIComponent(origin)}`);
+
+  if (unlockPromptWindowId !== null) {
+    try {
+      await browser.windows.update(unlockPromptWindowId, { focused: true });
+      return;
+    } catch {
+      unlockPromptWindowId = null;
+    }
+  }
+
+  const windowInfo = await browser.windows.create({
+    url,
+    type: 'popup',
+    width: 420,
+    height: 720,
+    focused: true,
+  });
+  unlockPromptWindowId = windowInfo?.id ?? null;
+}
+
+function shouldPromptUnlockForDappRequest(method: string): boolean {
+  return !PASSIVE_LOCKED_DAPP_METHODS.has(method);
+}
+
+function getLockedDappChainId(origin: string): string {
+  try {
+    return DAPP_CHAIN_DEFAULTS[normalizeOrigin(origin)] ?? toHexChainId(1);
+  } catch {
+    return toHexChainId(1);
+  }
+}
+
+async function waitForDappUnlock(origin: string): Promise<VaultPlaintext> {
+  if (isUnlocked()) return assertUnlocked();
+
+  await openWalletUnlockWindow(origin);
+  await new Promise<void>((resolve) => {
+    const pending: PendingUnlockRequest = {
+      resolve,
+      timeout: setTimeout(() => {
+        pendingUnlockRequests.delete(pending);
+        resolve();
+      }, DAPP_UNLOCK_TIMEOUT_MS),
+    };
+    pendingUnlockRequests.add(pending);
+  });
+
+  if (!isUnlocked()) {
+    throw new Error('Unlock the wallet to continue.');
+  }
+
+  return assertUnlocked();
+}
+
 function getActiveWallet(vault: VaultPlaintext): VaultWallet {
   const wallet = vault.wallets.find((candidate) => candidate.id === vault.activeWalletId) ?? vault.wallets[0];
   if (!wallet) throw new Error('No wallet is available.');
@@ -317,6 +442,56 @@ function getDappPermission(vault: VaultPlaintext, origin: string): DappPermissio
   if (!permission) return null;
   if (!vault.wallets.some((wallet) => wallet.id === permission.walletId)) return null;
   return permission;
+}
+
+function resolveDappChainTarget(
+  vault: VaultPlaintext,
+  hexChainId: string,
+): DappChainTarget | null {
+  const existing = findEvmChainByHexId(hexChainId, vault.customEvmChains);
+  if (existing) {
+    return {
+      chainId: existing.chainId,
+      networkMode: existing.networkMode,
+      customEvmChains: vault.customEvmChains,
+      numericChainId: existing.chain.chainId,
+    };
+  }
+
+  const knownChain = getKnownCustomEvmChainByHexId(hexChainId);
+  if (!knownChain) return null;
+
+  const customEvmChains = addCustomEvmChain(vault.customEvmChains, knownChain);
+  const resolved = findEvmChainByHexId(hexChainId, customEvmChains);
+  if (!resolved) return null;
+
+  return {
+    chainId: resolved.chainId,
+    networkMode: resolved.networkMode,
+    customEvmChains,
+    numericChainId: resolved.chain.chainId,
+  };
+}
+
+function getDefaultDappChainTarget(
+  vault: VaultPlaintext,
+  origin: string,
+): DappChainTarget | null {
+  const defaultHexChainId = DAPP_CHAIN_DEFAULTS[origin];
+  return defaultHexChainId ? resolveDappChainTarget(vault, defaultHexChainId) : null;
+}
+
+function getDappNumericChainId(
+  vault: VaultPlaintext,
+  origin: string,
+  permission: DappPermission | null,
+): number {
+  if (permission) {
+    return getEvmChain(permission.chainId, permission.networkMode, vault.customEvmChains).chainId;
+  }
+
+  return getDefaultDappChainTarget(vault, origin)?.numericChainId
+    ?? getEvmChain('ethereum', vault.networkMode, vault.customEvmChains).chainId;
 }
 
 function parseDappParams(params: unknown): unknown[] {
@@ -427,15 +602,18 @@ async function getPermissionAddress(
 async function approveDappConnection(
   vault: VaultPlaintext,
   origin: string,
+  targetChain?: DappChainTarget | null,
 ): Promise<DappPermission> {
   const wallet = getActiveWallet(vault);
-  const chainId: EvmChainId = 'ethereum';
+  const chainId: EvmChainId = targetChain?.chainId ?? 'ethereum';
+  const networkMode = targetChain?.networkMode ?? vault.networkMode;
+  const customEvmChains = targetChain?.customEvmChains ?? vault.customEvmChains;
   const permission: DappPermission = {
     origin,
     walletId: wallet.id,
     accountIndex: 0,
     chainId,
-    networkMode: vault.networkMode,
+    networkMode,
     approvedAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -443,11 +621,11 @@ async function approveDappConnection(
     wallet,
     chainId,
     permission.accountIndex,
-    permission.networkMode,
+    networkMode,
     vault.rpcPreferences,
-    vault.customEvmChains,
+    customEvmChains,
   );
-  const chain = getPermissionChain(vault, permission);
+  const chain = getEvmChain(chainId, networkMode, customEvmChains);
 
   await requestDappApproval({
     origin,
@@ -458,6 +636,9 @@ async function approveDappConnection(
     address,
   });
 
+  vault.customEvmChains = customEvmChains;
+  vault.rpcPreferences = normalizeRpcPreferences(vault.rpcPreferences, vault.customEvmChains);
+  vault.networkMode = networkMode;
   vault.dappPermissions[origin] = permission;
   await persistSession();
   return permission;
@@ -478,10 +659,11 @@ async function verifyCustomEvmChainRpc(chain: CustomEvmChain): Promise<void> {
 async function requireDappPermission(
   vault: VaultPlaintext,
   origin: string,
+  targetChain?: DappChainTarget | null,
 ): Promise<DappPermission> {
   const existing = getDappPermission(vault, origin);
   if (existing) return existing;
-  return approveDappConnection(vault, origin);
+  return approveDappConnection(vault, origin, targetChain);
 }
 
 async function handleDappRequest(vault: VaultPlaintext, request: DappRequest): Promise<unknown> {
@@ -490,7 +672,11 @@ async function handleDappRequest(vault: VaultPlaintext, request: DappRequest): P
   const existingPermission = getDappPermission(vault, origin);
 
   if (request.method === 'eth_requestAccounts') {
-    const permission = existingPermission ?? (await approveDappConnection(vault, origin));
+    const permission = existingPermission ?? (await approveDappConnection(
+      vault,
+      origin,
+      getDefaultDappChainTarget(vault, origin),
+    ));
     return [await getPermissionAddress(vault, permission)];
   }
 
@@ -499,27 +685,21 @@ async function handleDappRequest(vault: VaultPlaintext, request: DappRequest): P
   }
 
   if (request.method === 'eth_chainId') {
-    const permission = existingPermission ?? {
-      chainId: 'ethereum' as const,
-      networkMode: vault.networkMode,
-    };
-    return toHexChainId(getEvmChain(permission.chainId, permission.networkMode, vault.customEvmChains).chainId);
+    return toHexChainId(getDappNumericChainId(vault, origin, existingPermission));
   }
 
   if (request.method === 'net_version') {
-    const permission = existingPermission ?? {
-      chainId: 'ethereum' as const,
-      networkMode: vault.networkMode,
-    };
-    return String(getEvmChain(permission.chainId, permission.networkMode, vault.customEvmChains).chainId);
+    return String(getDappNumericChainId(vault, origin, existingPermission));
   }
 
   if (request.method === 'wallet_switchEthereumChain') {
     const [{ chainId } = {}] = params as Array<{ chainId?: string }>;
     if (!chainId) throw new Error('wallet_switchEthereumChain requires a chainId.');
-    const target = findEvmChainByHexId(chainId, vault.customEvmChains);
+    const target = resolveDappChainTarget(vault, chainId);
     if (!target) throw new Error(`Unsupported EVM chain: ${chainId}.`);
-    const permission = await requireDappPermission(vault, origin);
+    const permission = await requireDappPermission(vault, origin, target);
+    vault.customEvmChains = target.customEvmChains;
+    vault.rpcPreferences = normalizeRpcPreferences(vault.rpcPreferences, vault.customEvmChains);
     vault.dappPermissions[origin] = {
       ...permission,
       chainId: target.chainId,
@@ -535,6 +715,14 @@ async function handleDappRequest(vault: VaultPlaintext, request: DappRequest): P
     const [chainRequest] = params;
     const chainId = (chainRequest as { chainId?: string } | undefined)?.chainId;
     if (chainId && findEvmChainByHexId(chainId, vault.customEvmChains)) {
+      return null;
+    }
+
+    const knownTarget = chainId ? resolveDappChainTarget(vault, chainId) : null;
+    if (knownTarget) {
+      vault.customEvmChains = knownTarget.customEvmChains;
+      vault.rpcPreferences = normalizeRpcPreferences(vault.rpcPreferences, vault.customEvmChains);
+      await persistSession();
       return null;
     }
 
@@ -559,7 +747,7 @@ async function handleDappRequest(vault: VaultPlaintext, request: DappRequest): P
     return null;
   }
 
-  const permission = await requireDappPermission(vault, origin);
+  const permission = await requireDappPermission(vault, origin, getDefaultDappChainTarget(vault, origin));
   const wallet = vault.wallets.find((candidate) => candidate.id === permission.walletId);
   if (!wallet) throw new Error('Approved wallet is no longer available.');
   const address = await getPermissionAddress(vault, permission);
@@ -671,7 +859,7 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
   }
 
   if (request.type === 'vault:get') {
-    return buildDashboard();
+    return buildDashboard(request);
   }
 
   if (request.type === 'wallet:status') {
@@ -691,6 +879,25 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
     sessionKey = null;
     sessionExpiresAt = null;
     return buildDashboard();
+  }
+
+  if (request.type === 'dapp:request' && !isUnlocked()) {
+    if (request.request.method === 'eth_accounts') {
+      return [];
+    }
+
+    if (request.request.method === 'eth_chainId') {
+      return getLockedDappChainId(request.request.origin);
+    }
+
+    if (request.request.method === 'net_version') {
+      return String(Number.parseInt(getLockedDappChainId(request.request.origin), 16));
+    }
+
+    if (shouldPromptUnlockForDappRequest(request.request.method)) {
+      const vault = await waitForDappUnlock(request.request.origin);
+      return handleDappRequest(vault, request.request);
+    }
   }
 
   const vault = assertUnlocked();
@@ -772,7 +979,7 @@ async function handleRequest(request: RuntimeRequest): Promise<unknown> {
   }
 
   if (request.type === 'wallet:refresh') {
-    return buildDashboard();
+    return buildDashboard(request);
   }
 
   if (request.type === 'send:quote') {
@@ -836,6 +1043,11 @@ export default defineBackground(() => {
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === 'refresh-transactions') {
       refreshSessionTransactions().catch(() => undefined);
+    }
+  });
+  browser.windows.onRemoved.addListener((windowId) => {
+    if (windowId === unlockPromptWindowId) {
+      unlockPromptWindowId = null;
     }
   });
 

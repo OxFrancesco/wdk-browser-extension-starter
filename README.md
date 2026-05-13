@@ -76,13 +76,13 @@ The starter uses the WDK APIs available in the local beta codebase:
 - Multi-wallet and multi-account derivation
 - Mainnet/testnet registration for EVM, Bitcoin, Spark, and Solana WDK wallet modules across Bitcoin, Spark, Ethereum, Polygon, Arbitrum, Plasma, and Solana
 - Per-chain custom RPC URLs for Bitcoin Blockbook, EVM, and Solana mainnet/testnet profiles, with user-added URLs tried before built-in fallbacks
-- EVM dApp connection via `window.ethereum` / EIP-1193 for Ethereum, Polygon, Arbitrum, Plasma, and approved custom EIP-155 networks, including `eth_requestAccounts`, `eth_accounts`, `eth_chainId`, `wallet_switchEthereumChain`, `wallet_addEthereumChain`, selected read-only JSON-RPC proxy methods, `personal_sign`, `eth_signTypedData_v4`, and `eth_sendTransaction`
+- EVM dApp connection via `window.ethereum` / EIP-1193 for Ethereum, Polygon, Arbitrum, Plasma, allow-listed dapp networks such as Base, and approved custom EIP-155 networks, including `eth_requestAccounts`, `eth_accounts`, `eth_chainId`, `wallet_switchEthereumChain`, `wallet_addEthereumChain`, selected read-only JSON-RPC proxy methods, `personal_sign`, `eth_signTypedData_v4`, and `eth_sendTransaction`
 - Address derivation for supported networks
 - Native/token balance lookups where the wallet module exposes providers
 - Send quotes and broadcasts where the selected module exposes those methods
 - Transaction status refresh for submitted transactions with supported public status endpoints
 - Mainnet/testnet switching for Bitcoin, Spark, Ethereum, Polygon, Arbitrum, Plasma, and Solana
-- Multiple custom EVM mainnet/testnet chains can be added by dapps through `wallet_addEthereumChain`, registered dynamically with WDK, selected in the popup, and removed from the RPC settings sheet
+- Multiple custom EVM mainnet/testnet chains can be added by dapps through `wallet_addEthereumChain`, registered dynamically with WDK, selected in the popup, and removed from the RPC settings sheet; trusted known chains can also be auto-added when a dapp requests that chain
 - Popup WDK primitive console for installed WDK account primitives, including core account/fee methods, common wallet actions, EVM signing/approval/delegation helpers, Bitcoin max-spendable lookup, and Spark deposit, invoice, Lightning, withdraw, and sync operations
 
 Lifecycle and wiring primitives such as wallet registration, protocol registration, middleware registration, and disposal are owned by the background runtime instead of being exposed to the page or popup console. Some behavior depends on public RPC/indexer availability and funded accounts. Production teams should replace public endpoints with owned infrastructure before shipping.

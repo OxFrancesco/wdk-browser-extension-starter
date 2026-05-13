@@ -91,7 +91,7 @@ type Eip1193TransactionRequest = {
   nonce?: string | number;
 };
 
-export const WDK_PRIMITIVES: WdkPrimitiveDefinition[] = [
+const WDK_PRIMITIVES: WdkPrimitiveDefinition[] = [
   {
     id: 'core:generateSeedPhrase',
     label: 'Generate seed phrase',
@@ -953,14 +953,19 @@ function serializePrimitiveResult(value: unknown): string {
 
 function getPrimitiveStringList(value: unknown): string[] {
   if (Array.isArray(value)) {
-    return value.map((item) => String(item)).filter(Boolean);
+    return value.flatMap((item) => {
+      const normalized = String(item);
+      return normalized ? [normalized] : [];
+    });
   }
 
   if (typeof value === 'string') {
     return value
       .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
+      .flatMap((item) => {
+        const normalized = item.trim();
+        return normalized ? [normalized] : [];
+      });
   }
 
   return [];

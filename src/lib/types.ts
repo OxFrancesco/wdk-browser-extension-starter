@@ -50,9 +50,7 @@ export type DappPermission = {
   updatedAt: number;
 };
 
-export type DappPermissions = Record<string, DappPermission>;
-
-export type SendStatus = 'draft' | 'quoted' | 'submitted' | 'confirmed' | 'failed';
+type SendStatus = 'draft' | 'quoted' | 'submitted' | 'confirmed' | 'failed';
 
 export type VaultWallet = {
   id: string;
@@ -85,7 +83,7 @@ export type VaultPlaintext = {
   networkMode: NetworkMode;
   customEvmChains: CustomEvmChains;
   rpcPreferences: RpcPreferences;
-  dappPermissions: DappPermissions;
+  dappPermissions: Record<string, DappPermission>;
   sessionTimeoutMinutes: number;
   wallets: VaultWallet[];
   transactions: TransactionRecord[];
@@ -155,7 +153,7 @@ export type DashboardState = {
   networkMode: NetworkMode;
   customEvmChains: CustomEvmChains;
   rpcPreferences: RpcPreferences;
-  dappPermissions: DappPermissions;
+  dappPermissions: Record<string, DappPermission>;
   sessionExpiresAt: number | null;
   wallets: Array<Omit<VaultWallet, 'seedPhrase'>>;
   accounts: AccountSnapshot[];
@@ -179,7 +177,7 @@ export type SendQuote = {
   warning?: string;
 };
 
-export type WdkPrimitiveCategory =
+type WdkPrimitiveCategory =
   | 'core'
   | 'wallet'
   | 'evm'
